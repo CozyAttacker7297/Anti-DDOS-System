@@ -1,0 +1,50 @@
+:root {
+    --success: #28a745;
+    --warning: #ffc107;
+    --danger: #dc3545;
+  }
+  
+  .server-health {
+      display: flex;
+      justify-content: space-between;
+      margin-top: 20px;
+  }
+  
+  .server {
+      text-align: center;
+      padding: 15px;
+      border-radius: 8px;
+      background-color: #f8f9fa;
+      flex: 1;
+      margin: 0 10px; /* spacing between server cards */
+  }
+  
+  .server-name {
+      font-weight: 600;
+      margin-bottom: 10px;
+  }
+  
+  .server-status {
+      width: 60px;
+      height: 60px;
+      margin: 0 auto 10px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: bold;
+      color: white;
+  }
+  
+  .server-healthy {
+      background-color: var(--success);
+  }
+  
+  .server-warning {
+      background-color: var(--warning);
+  }
+  
+  .server-critical {
+      background-color: var(--danger);
+  }
+  

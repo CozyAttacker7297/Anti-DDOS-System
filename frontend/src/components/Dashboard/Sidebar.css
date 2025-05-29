@@ -1,0 +1,183 @@
+.sidebar {
+    background-color: var(--primary);
+    color: white;
+    padding: 20px 0;
+    box-shadow: 2px 0 10px rgba(0,0,0,0.1);
+}
+
+.sidebar-header {
+    padding: 0 20px 20px;
+    border-bottom: 1px solid rgba(255,255,255,0.1);
+}
+
+.sidebar-header h2 {
+    margin: 0;
+    font-size: 2rem;
+    font-weight: 900;
+    letter-spacing: 0.15em;
+    text-align: center;
+    font-family: Calibri, Candara, Segoe, 'Segoe UI', Optima, Arial, sans-serif;
+}
+
+.sidebar-header p {
+    margin: 5px 0 0;
+    font-size: 14px;
+    opacity: 0.8;
+}
+
+.sidebar-menu {
+    padding: 20px 0;
+}
+
+.menu-item {
+    padding: 12px 20px;
+    cursor: pointer;
+    transition: all 0.3s;
+    display: flex;
+    align-items: center;
+}
+
+.menu-item:hover {
+    background-color: rgba(255,255,255,0.1);
+}
+
+.menu-item i {
+    margin-right: 10px;
+}
+
+.menu-item.active {
+    background-color: var(--info);
+}
+
+.menu-item span {
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.fsociety-logo {
+    display: block;
+    margin: 0 auto;
+    max-width: 150px;
+    width: 95%;
+    height: auto;
+    padding: 8px 0;
+}
+
+@media (max-width: 1200px) {
+  .sidebar {
+    width: 160px;
+    padding: 8px 0;
+  }
+  .sidebar-header h2 {
+    font-size: 1.1rem;
+  }
+}
+
+@media (max-width: 1024px) {
+  .sidebar {
+    width: 120px;
+    padding: 6px 0;
+  }
+  .sidebar-header h2 {
+    font-size: 1rem;
+  }
+  .fsociety-logo {
+    max-width: 90px;
+  }
+}
+
+@media (max-width: 900px) {
+  .sidebar {
+    width: 100px;
+    padding: 4px 0;
+  }
+  .sidebar-header h2 {
+    font-size: 0.95rem;
+  }
+}
+
+@media (max-width: 768px) {
+  .sidebar {
+    position: static;
+    width: 100%;
+    height: auto;
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    justify-content: flex-start;
+    overflow-x: auto;
+    box-shadow: none;
+    padding: 0;
+    border-bottom: 1px solid #222;
+  }
+  .sidebar-header {
+    padding: 8px 8px 8px 12px;
+    border-bottom: none;
+  }
+  .sidebar-header h2 {
+    font-size: 0.9rem;
+    margin-right: 12px;
+  }
+  .sidebar-menu {
+    display: flex;
+    flex-direction: row;
+    padding: 0;
+    gap: 6px;
+  }
+  .menu-item {
+    padding: 8px 8px;
+    font-size: 0.9em;
+    margin: 0;
+  }
+  .menu-item span {
+    font-size: 0.9em;
+  }
+  .fsociety-logo {
+    max-width: 70px;
+    padding: 4px 0;
+  }
+}
+
+@media (max-width: 600px) {
+  .sidebar-header h2 {
+    font-size: 0.8rem;
+    letter-spacing: 0.06em;
+  }
+  .menu-item {
+    padding: 6px 4px;
+    font-size: 0.8em;
+  }
+  .menu-item span {
+    font-size: 0.8em;
+  }
+}
+
+@media (max-width: 480px) {
+  .sidebar-header h2 {
+    font-size: 0.7rem;
+    letter-spacing: 0.05em;
+  }
+  .menu-item {
+    padding: 4px 2px;
+    font-size: 0.7em;
+  }
+  .menu-item span {
+    font-size: 0.7em;
+  }
+  .fsociety-logo {
+    max-width: 50px;
+    padding: 2px 0;
+  }
+}
+
+@media (max-width: 375px) {
+  .sidebar-header h2 {
+    font-size: 0.6rem;
+  }
+  .menu-item {
+    font-size: 0.6em;
+  }
+  .menu-item span {
+    font-size: 0.6em;
+  }
+} 

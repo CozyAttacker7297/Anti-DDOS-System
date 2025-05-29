@@ -1,0 +1,156 @@
+.alerts-container {
+  color: #fff;
+  background: none;
+}
+
+.alerts-title {
+  font-size: 1.5rem;
+  margin-bottom: 0.2em;
+}
+
+.alerts-desc {
+  color: #b0b3b8;
+  margin-bottom: 1.5em;
+}
+
+.alerts-row {
+  display: flex;
+  gap: 24px;
+  margin-bottom: 2em;
+}
+
+.alerts-card {
+  background: #23272f;
+  border-radius: 12px;
+  padding: 1.5em;
+  flex: 1;
+  min-width: 280px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.12);
+}
+
+.form-group {
+  margin-bottom: 1em;
+}
+
+.form-group label {
+  display: block;
+  font-weight: 500;
+  margin-bottom: 0.5em;
+}
+
+select, input[type="date"] {
+  background: #181a20;
+  color: #fff;
+  border: 1px solid #333;
+  border-radius: 6px;
+  padding: 0.5em 0.75em;
+  font-size: 1em;
+  width: 100%;
+}
+
+.checkbox-group {
+  display: flex;
+  gap: 1em;
+  margin-top: 0.5em;
+}
+
+.checkbox-group label {
+  font-weight: 400;
+  display: flex;
+  align-items: center;
+  gap: 0.3em;
+}
+
+.alerts-actions {
+  display: flex;
+  gap: 1em;
+  margin-top: 1em;
+}
+
+.btn {
+  border: none;
+  border-radius: 6px;
+  padding: 0.5em 1.2em;
+  font-weight: 500;
+  cursor: pointer;
+  font-size: 1em;
+  transition: background 0.2s;
+}
+
+.btn-primary {
+  background: #3b82f6;
+  color: #fff;
+}
+
+.btn-secondary {
+  background: #374151;
+  color: #fff;
+}
+
+.btn-danger {
+  background: #ef4444;
+  color: #fff;
+}
+
+.btn-info {
+  background: #facc15;
+  color: #23272f;
+}
+
+.btn-sm {
+  font-size: 0.9em;
+  padding: 0.3em 0.8em;
+}
+
+.alerts-history-card {
+  background: #23272f;
+  border-radius: 12px;
+  padding: 1.5em;
+  margin-top: 2em;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.12);
+}
+
+.alerts-history-filters {
+  display: flex;
+  gap: 1.5em;
+  align-items: flex-end;
+  margin-bottom: 1.2em;
+}
+
+.alerts-history-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 1em;
+}
+
+.alerts-history-table th, .alerts-history-table td {
+  padding: 0.7em 1em;
+  text-align: left;
+}
+
+.alerts-history-table th {
+  background: #181a20;
+  color: #b0b3b8;
+  font-weight: 600;
+}
+
+.alerts-history-table tr {
+  border-bottom: 1px solid #333;
+}
+
+.alerts-history-table tr:last-child {
+  border-bottom: none;
+}
+
+.badge {
+  display: inline-block;
+  padding: 0.3em 0.8em;
+  border-radius: 6px;
+  font-size: 0.95em;
+  font-weight: 600;
+}
+
+.badge-caution {
+  background: #facc15;
+  color: #23272f;
+} 
