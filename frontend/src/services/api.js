@@ -1,7 +1,8 @@
 import axios from 'axios';
 
 // Set up your backend URL (change if needed)
-const apiUrl = 'http://localhost:5000/api/attacks';
+const apiUrl = 'http://localhost:8000/api/attacks';
+const baseUrl = 'http://localhost:8000/api';
 
 // GET request: Get all attacks
 export const getAttacks = async () => {
@@ -43,6 +44,16 @@ export const updateAttack = async (attackId, updatedData) => {
     return response.data;
   } catch (error) {
     console.error('Error updating attack:', error);
+    throw error;
+  }
+};
+
+export const getAttackLogs = async () => {
+  try {
+    const response = await axios.get(`${baseUrl}/attack-logs`);
+    return response.data;
+  } catch (error) {
+    console.error('Error fetching attack logs:', error);
     throw error;
   }
 };

@@ -8,6 +8,9 @@ import AttackLogs from './AttackLogs';
 import ServerHealthDashboard from './ServerHealth';
 import Alerts from '../Alerts/Alerts';
 import './Dashboard.css';
+import Response from '../../pages/Response';
+
+
 
 const TAB_TITLES = {
   dashboard: 'DASHBOARD',
@@ -35,12 +38,8 @@ const Dashboard = () => {
           </>
         );
       case 'response':
-        return (
-          <div className="dashboard-section">
-            <h2>Response Management</h2>
-            <p>Response management content will be displayed here.</p>
-          </div>
-        );
+  return <Response />;
+
       case 'servers':
         return <ServerHealthDashboard />;
       case 'blocked-ip':

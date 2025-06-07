@@ -6,6 +6,7 @@ from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 from .routers import dashboard_router, iptable_router, server_router, loadbalancer_router
+from .routers.attacklog_router import router as attacklog_router
 import psutil
 import os
 from dotenv import load_dotenv
@@ -34,7 +35,7 @@ app = FastAPI(
     version="1.0.0"
 )
 
-# Add rate limiter to app state
+# Add rate limiter to app statea
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
@@ -71,7 +72,7 @@ app.add_middleware(
 @app.middleware("http")
 async def add_security_headers(request: Request, call_next: Callable):
     response = await call_next(request)
-    
+
     # Add security headers
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "DENY"
@@ -80,8 +81,15 @@ async def add_security_headers(request: Request, call_next: Callable):
     response.headers["Content-Security-Policy"] = "default-src 'self'; frame-ancestors 'none'"
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
     response.headers["Permissions-Policy"] = "geolocation=(), microphone=(), camera=()"
-    
+
     return response
+
+
+
+@app.get("/")
+def read_root():
+    return {"message": "Hello, FastAPI!"}
+
 
 # Error handling middleware
 @app.middleware("http")
@@ -100,6 +108,7 @@ app.include_router(dashboard_router, prefix="/api", tags=["dashboard"])
 app.include_router(iptable_router, prefix="/api", tags=["iptable"])
 app.include_router(server_router, prefix="/api", tags=["servers"])
 app.include_router(loadbalancer_router, prefix="/api", tags=["loadbalancer"])
+app.include_router(attacklog_router, prefix="/api", tags=["attacklogs"])
 
 @app.get("/api/test-connection")
 async def test_connection():
@@ -128,12 +137,13 @@ async def server_health(request: Request) -> dict:
             detail="Error retrieving server health metrics"
         )
 
-# List your backend Flask servers here
 backend_servers = [
-    "http://192.168.1.62:5000",
-    "http://192.168.1.23:5001",
-    "http://192.168.1.105:5000"
-]
+     "http://192.168.1.62:5000",
+     "http://192.168.1.23:5001",
+     "http://192.168.1.105:5000",
+      "http://127.0.0.1:5000",
+ ]
+
 
 @app.get("/api/all-server-health")
 @limiter.limit("5/minute")
@@ -142,7 +152,7 @@ async def all_server_health(request: Request):
     async with httpx.AsyncClient(timeout=2) as client:
         for server_url in backend_servers:
             try:
-                resp = await client.get(f"{server_url}/server-health")
+                resp = await client.get(f"{server_url}/api/server-health")  # **Important: use your real route here**
                 resp.raise_for_status()
                 results.append(resp.json())
             except Exception as e:
@@ -171,30 +181,33 @@ async def all_server_health(request: Request):
 server_cycle = itertools.cycle(backend_servers)
 
 # Proxy fallback route for load balancing
-@app.api_route("/{full_path:path}", methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"])
-async def proxy_request(full_path: str, request: Request):
-    backend_url = next(server_cycle)
-    url = f"{backend_url}/{full_path}"
+# @app.api_route("/{full_path:path}", methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"])
+# async def proxy_request(full_path: str, request: Request):
+#     backend_url = next(server_cycle)
+#     url = f"{backend_url}/{full_path}"
 
-    headers = dict(request.headers)
-    body = await request.body()
-    method = request.method
+#     headers = dict(request.headers)
+#     # Remove host header to avoid issues when forwarding
+#     headers.pop("host", None)
 
-    async with httpx.AsyncClient() as client:
-        try:
-            backend_response = await client.request(
-                method, url, headers=headers, content=body, timeout=10
-            )
-        except httpx.RequestError as e:
-            logger.error(f"Failed to connect to backend server {backend_url}: {e}")
-            return JSONResponse(
-                status_code=502,
-                content={"error": f"Failed to connect to backend server {backend_url}: {str(e)}"},
-            )
+#     body = await request.body()
+#     method = request.method
 
-    return Response(
-        content=backend_response.content,
-        status_code=backend_response.status_code,
-        headers=dict(backend_response.headers),
-        media_type=backend_response.headers.get("content-type"),
-    )
+#     async with httpx.AsyncClient() as client:
+#         try:
+#             backend_response = await client.request(
+#                 method, url, headers=headers, content=body, timeout=10
+#             )
+#         except httpx.RequestError as e:
+#             logger.error(f"Failed to connect to backend server {backend_url}: {e}")
+#             return JSONResponse(
+#                 status_code=502,
+#                 content={"error": f"Failed to connect to backend server {backend_url}: {str(e)}"},
+#             )
+
+#     return Response(
+#         content=backend_response.content,
+#         status_code=backend_response.status_code,
+#         headers=dict(backend_response.headers),
+#         media_type=backend_response.headers.get("content-type"),
+#     )

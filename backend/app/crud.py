@@ -20,6 +20,10 @@ def delete_server(db: Session, server_id: int):
         db.commit()
     return server
 
+def get_attack_logs(db: Session):
+    return db.query(models.AttackLog).all()
+
+
 # Add similar CRUD functions for Alert, SecurityEvent, BlockedIP, AttackLog as needed 
 
 def add_server(db, server_data):

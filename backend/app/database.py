@@ -12,6 +12,12 @@ Base = declarative_base()
 
 # Import models to ensure they are registered with SQLAlchemy's Base
 from . import models
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
 
 # Create all tables
 Base.metadata.create_all(bind=engine)
