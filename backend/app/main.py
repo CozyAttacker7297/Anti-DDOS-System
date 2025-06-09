@@ -1,20 +1,20 @@
-from fastapi import FastAPI, Request, HTTPException
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request, HTTPException, Depends
+from sqlalchemy.orm import Session
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
-from fastapi.responses import JSONResponse, Response
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
-from .routers import dashboard_router, iptable_router, server_router, loadbalancer_router
-from .routers.attacklog_router import router as attacklog_router
+from . import models
+from .database import SessionLocal, engine
 import psutil
 import os
 from dotenv import load_dotenv
 import time
-from typing import Callable
 import logging
-import httpx  # async HTTP client
-import itertools
+import datetime
+from typing import List
 
 # Configure logging
 logging.basicConfig(
@@ -29,87 +29,143 @@ load_dotenv()
 # Initialize rate limiter
 limiter = Limiter(key_func=get_remote_address)
 
+# Create an instance of the FastAPI app
 app = FastAPI(
     title="Anti-DDOS System API",
     description="Backend API for the Anti-DDOS System Dashboard",
     version="1.0.0"
 )
 
-# Add rate limiter to app statea
-app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
-
-# Get allowed origins from environment variable, fallback to development default
+# Configure CORS
 ALLOWED_ORIGINS = os.getenv(
     "ALLOWED_ORIGINS",
     "http://localhost:3000,http://127.0.0.1:3000"
 ).split(",")
 
-# Get trusted hosts from environment variable
-TRUSTED_HOSTS = os.getenv(
-    "TRUSTED_HOSTS",
-    "localhost,127.0.0.1"
-).split(",")
-
-# Configure CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
-    expose_headers=["Content-Range", "X-Content-Range"],
-    max_age=3600,
 )
 
 # Add trusted host middleware
+TRUSTED_HOSTS = os.getenv(
+    "TRUSTED_HOSTS",
+    "localhost,127.0.0.1"
+).split(",")
+
 app.add_middleware(
     TrustedHostMiddleware,
     allowed_hosts=TRUSTED_HOSTS
 )
 
-# Security headers middleware
-@app.middleware("http")
-async def add_security_headers(request: Request, call_next: Callable):
-    response = await call_next(request)
+# Rate limiter
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
-    # Add security headers
-    response.headers["X-Content-Type-Options"] = "nosniff"
-    response.headers["X-Frame-Options"] = "DENY"
-    response.headers["X-XSS-Protection"] = "1; mode=block"
-    response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
-    response.headers["Content-Security-Policy"] = "default-src 'self'; frame-ancestors 'none'"
-    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
-    response.headers["Permissions-Policy"] = "geolocation=(), microphone=(), camera=()"
-
-    return response
-
-
-
-@app.get("/")
-def read_root():
-    return {"message": "Hello, FastAPI!"}
-
-
-# Error handling middleware
-@app.middleware("http")
-async def error_handling_middleware(request: Request, call_next: Callable):
+# Database models and session
+def get_db():
+    db = SessionLocal()
     try:
-        return await call_next(request)
-    except Exception as e:
-        logger.error(f"Unhandled error: {str(e)}", exc_info=True)
-        return JSONResponse(
-            status_code=500,
-            content={"detail": "Internal server error"}
-        )
+        yield db
+    finally:
+        db.close()
 
-# Include routers
-app.include_router(dashboard_router, prefix="/api", tags=["dashboard"])
-app.include_router(iptable_router, prefix="/api", tags=["iptable"])
-app.include_router(server_router, prefix="/api", tags=["servers"])
-app.include_router(loadbalancer_router, prefix="/api", tags=["loadbalancer"])
-app.include_router(attacklog_router, prefix="/api", tags=["attacklogs"])
+# WebSocket to listen for real-time updates
+@app.websocket("/ws/server-health")
+async def websocket_server_health(websocket: WebSocket):
+    await websocket.accept()
+    try:
+        while True:
+            message = await websocket.receive_text()
 
+            if message == "get_health":
+                health_data = await get_server_health()
+                await websocket.send_json(health_data)
+
+            elif message == "new_alert":
+                alert_data = await get_new_alert()
+                await websocket.send_json(alert_data)
+
+            elif message == "get_attack_logs":
+                attack_logs = await get_recent_attack_logs()
+                await websocket.send_json(attack_logs)
+
+            else:
+                await websocket.send_text(f"Unknown command: {message}")
+
+    except WebSocketDisconnect:
+        logger.info("Client disconnected")
+
+# Helper functions to interact with the database using SQLAlchemy
+async def get_server_health():
+    cpu = psutil.cpu_percent(interval=1)
+    ram = psutil.virtual_memory().percent
+    return {"cpu": cpu, "ram": ram}
+
+async def get_new_alert():
+    db: Session = SessionLocal()
+    alert = db.query(models.Alert).order_by(models.Alert.created_at.desc()).first()
+    db.close()
+    if alert:
+        return {
+            "id": alert.id,
+            "message": alert.message,
+            "severity": alert.severity,
+            "status": alert.status,
+            "created_at": alert.created_at.isoformat()
+        }
+    return {"message": "No alerts found"}
+
+async def get_recent_attack_logs():
+    db: Session = SessionLocal()
+    attack_logs = db.query(models.AttackLog).order_by(models.AttackLog.timestamp.desc()).limit(5).all()
+    db.close()
+    logs = []
+    for log in attack_logs:
+        logs.append({
+            "id": log.id,
+            "timestamp": log.timestamp.isoformat(),
+            "type": log.type,
+            "source_ip": log.source_ip,
+            "target": log.target,
+            "severity": log.severity,
+            "action": log.action
+        })
+    return logs
+
+# Route to fetch attack logs via HTTP request
+@app.get("/api/get-attack-logs")
+async def get_attack_logs(db: Session = Depends(get_db)):
+    return await get_recent_attack_logs()
+
+# Route to add a new alert into the database
+@app.post("/add_alert/")
+async def add_alert(message: str, severity: str, db: Session = Depends(get_db)):
+    new_alert = models.Alert(message=message, severity=severity)
+    db.add(new_alert)
+    db.commit()
+    db.refresh(new_alert)
+
+    # Broadcast the new alert to connected WebSocket clients
+    await broadcast_new_alert(new_alert)
+    
+    return {"message": f"Alert '{message}' added with severity '{severity}'!"}
+
+# Function to broadcast the new alert to all WebSocket clients
+async def broadcast_new_alert(new_alert: models.Alert):
+    # Placeholder: Ideally, you would have an in-memory store like Redis or a WebSocket manager to broadcast
+    logger.info(f"Broadcasting new alert: {new_alert.message}")
+
+# Route to fetch current server health (CPU/RAM)
+@app.get("/api/server-health")
+async def server_health():
+    health_data = await get_server_health()
+    return health_data
+
+# Test connection to verify that the backend is connected
 @app.get("/api/test-connection")
 async def test_connection():
     return {
@@ -118,96 +174,68 @@ async def test_connection():
         "timestamp": time.time()
     }
 
-@app.get("/api/server-health")
-@limiter.limit("10/minute")  # Rate limit: 10 requests per minute
-async def server_health(request: Request) -> dict:
+# Error handling middleware for catching exceptions
+@app.middleware("http")
+async def error_handling_middleware(request: Request, call_next):
     try:
-        cpu = psutil.cpu_percent(interval=1)
-        ram = psutil.virtual_memory().percent
-        return {
-            "name": "Web Server 1",
-            "status": 100 - ram,
-            "cpu": cpu,
-            "ram": ram
-        }
+        return await call_next(request)
     except Exception as e:
-        logger.error(f"Error getting server health: {str(e)}", exc_info=True)
-        raise HTTPException(
+        logger.error(f"Unhandled error: {str(e)}", exc_info=True)
+        return JSONResponse(
             status_code=500,
-            detail="Error retrieving server health metrics"
+            content={"detail": "Internal server error"}
         )
+    
+@app.websocket("/ws/stats")
+async def websocket_stats(websocket: WebSocket):
+    try:
+        await websocket.accept()
+        logger.info("WebSocket connection established")
 
-backend_servers = [
-     "http://192.168.1.62:5000",
-     "http://192.168.1.23:5001",
-     "http://192.168.1.105:5000",
-      "http://127.0.0.1:5000",
- ]
+        while True:
+            message = await websocket.receive_text()
+            if message == "get_stats":
+                stats_data = await get_stats_data()
+                await websocket.send_json(stats_data)
+            else:
+                await websocket.send_text(f"Unknown command: {message}")
+    except Exception as e:
+        logger.error(f"Error in WebSocket: {str(e)}")
+    finally:
+        logger.info("WebSocket connection closed")
+        await websocket.close()
 
 
-@app.get("/api/all-server-health")
-@limiter.limit("5/minute")
-async def all_server_health(request: Request):
-    results = []
-    async with httpx.AsyncClient(timeout=2) as client:
-        for server_url in backend_servers:
-            try:
-                resp = await client.get(f"{server_url}/api/server-health")  # **Important: use your real route here**
-                resp.raise_for_status()
-                results.append(resp.json())
-            except Exception as e:
-                logger.warning(f"Could not fetch health from {server_url}: {e}")
-                results.append({
-                    "name": server_url,
-                    "status": 0,
-                    "cpu": 0,
-                    "ram": 0
-                })
 
-    # Add load balancer health info at the end
-    cpu = psutil.cpu_percent(interval=1)
-    ram = psutil.virtual_memory().percent
-    load_balancer_health = {
-        "name": "Load Balancer",
-        "status": 100 - max(cpu, ram),
-        "cpu": cpu,
-        "ram": ram
-    }
-    results.append(load_balancer_health)
-
-    return results
-
-# Round-robin cycle for backend servers
-server_cycle = itertools.cycle(backend_servers)
-
-# Proxy fallback route for load balancing
-# @app.api_route("/{full_path:path}", methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"])
-# async def proxy_request(full_path: str, request: Request):
-#     backend_url = next(server_cycle)
-#     url = f"{backend_url}/{full_path}"
-
-#     headers = dict(request.headers)
-#     # Remove host header to avoid issues when forwarding
-#     headers.pop("host", None)
-
-#     body = await request.body()
-#     method = request.method
-
-#     async with httpx.AsyncClient() as client:
-#         try:
-#             backend_response = await client.request(
-#                 method, url, headers=headers, content=body, timeout=10
-#             )
-#         except httpx.RequestError as e:
-#             logger.error(f"Failed to connect to backend server {backend_url}: {e}")
-#             return JSONResponse(
-#                 status_code=502,
-#                 content={"error": f"Failed to connect to backend server {backend_url}: {str(e)}"},
-#             )
-
-#     return Response(
-#         content=backend_response.content,
-#         status_code=backend_response.status_code,
-#         headers=dict(backend_response.headers),
-#         media_type=backend_response.headers.get("content-type"),
-#     )
+# Function to generate stats (this can be dynamic based on DB, etc.)
+async def get_stats_data():
+    return [
+        {
+            "title": "ATTACKS BLOCKED",
+            "value": "0",
+            "change": "12% from yesterday",
+            "type": "danger",
+            "isPositive": False
+        },
+        {
+            "title": "MALICIOUS REQUESTS",
+            "value": "5,732",
+            "change": "8% from yesterday",
+            "type": "warning",
+            "isPositive": True
+        },
+        {
+            "title": "CLEAN TRAFFIC",
+            "value": "2.1M",
+            "change": "3% from yesterday",
+            "type": "success",
+            "isPositive": True
+        },
+        {
+            "title": "UPTIME",
+            "value": "99.98%",
+            "change": "All systems normal",
+            "type": "info",
+            "isPositive": True
+        }
+    ]

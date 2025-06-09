@@ -1,49 +1,43 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import './AttackLogs.css';
 
 const AttackLogs = () => {
-  const logs = [
-    {
-      timestamp: '2023-06-15 14:23:45',
-      type: 'SQL Injection',
-      sourceIp: '192.168.45.23',
-      target: 'API Server',
-      severity: 'Critical',
-      action: 'Blocked IP'
-    },
-    {
-      timestamp: '2023-06-15 13:56:12',
-      type: 'DDoS',
-      sourceIp: '45.67.89.123',
-      target: 'Load Balancer',
-      severity: 'Critical',
-      action: 'Rate Limited'
-    },
-    {
-      timestamp: '2023-06-15 12:34:56',
-      type: 'XSS Attempt',
-      sourceIp: '78.90.123.45',
-      target: 'Web Server',
-      severity: 'High',
-      action: 'Logged'
-    },
-    {
-      timestamp: '2023-06-15 11:45:23',
-      type: 'Port Scan',
-      sourceIp: '101.202.33.44',
-      target: 'Firewall',
-      severity: 'Medium',
-      action: 'Blocked IP'
-    },
-    {
-      timestamp: '2023-06-15 10:12:34',
-      type: 'Brute Force',
-      sourceIp: '67.89.123.45',
-      target: 'SSH Gateway',
-      severity: 'Critical',
-      action: 'Blocked IP'
+  const [logs, setLogs] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  // Function to fetch attack logs
+  const fetchAttackLogs = async () => {
+    try {
+      console.log('Fetching attack logs...');  // Add a log to confirm the function is being triggered
+      const response = await fetch('http://localhost:5000/api/get-attack-logs'); // Adjust endpoint if necessary
+      console.log('Response status:', response.status);  // Log the response status
+
+      // Check if the response is successful
+      if (!response.ok) {
+        console.error('Failed to fetch data:', response.statusText);
+        throw new Error('Failed to fetch data');
+      }
+
+      const data = await response.json();
+      console.log('Fetched attack logs:', data);  // Log the response data
+
+      if (Array.isArray(data)) {
+        setLogs(data); // Assuming the data is an array
+      } else {
+        console.error('Data format is incorrect:', data);  // Handle unexpected data format
+      }
+
+      setLoading(false); // Stop loading
+    } catch (error) {
+      console.error('Error fetching attack logs:', error); // Log the error if any
+      setLoading(false); // Stop loading even if there's an error
     }
-  ];
+  };
+
+  // Fetch attack logs on component mount
+  useEffect(() => {
+    fetchAttackLogs();
+  }, []);
 
   const getSeverityClass = (severity) => {
     switch (severity.toLowerCase()) {
@@ -58,13 +52,19 @@ const AttackLogs = () => {
     }
   };
 
+  if (loading) {
+    return <div>Loading...</div>;
+  }
+
   return (
     <div className="dashboard-section">
       <div className="section-header">
         <h2 className="section-title">Attack Detection Logs</h2>
         <div>
           <button className="btn btn-primary">Export Logs</button>
-          <button className="btn btn-success" style={{ marginLeft: '10px' }}>Refresh</button>
+          <button className="btn btn-success" style={{ marginLeft: '10px' }} onClick={fetchAttackLogs}>
+            Refresh
+          </button>
         </div>
       </div>
       <table>
@@ -81,9 +81,9 @@ const AttackLogs = () => {
         <tbody>
           {logs.map((log, index) => (
             <tr key={index}>
-              <td>{log.timestamp}</td>
+              <td>{new Date(log.timestamp).toLocaleString()}</td> {/* Format timestamp */}
               <td>{log.type}</td>
-              <td>{log.sourceIp}</td>
+              <td>{log.source_ip}</td> {/* Match the backend field name */}
               <td>{log.target}</td>
               <td>
                 <span className={`badge ${getSeverityClass(log.severity)}`}>
@@ -99,4 +99,4 @@ const AttackLogs = () => {
   );
 };
 
-export default AttackLogs; 
+export default AttackLogs;
