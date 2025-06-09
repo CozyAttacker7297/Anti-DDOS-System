@@ -1,39 +1,32 @@
-import React, { useEffect, useState } from "react";
-import axios from "axios";
+import React, { useEffect, useState } from 'react';
 
-const AttackLogs = () => {
+const Response = () => {
   const [attackLogs, setAttackLogs] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [adding, setAdding] = useState(false);
-  const [deletingId, setDeletingId] = useState(null);
+  const [status, setStatus] = useState('Connecting...');
 
-  const ws = new WebSocket("http://localhost:5000/api/get-attack-logs");
-  const wsStats = new WebSocket("ws://localhost:5000/ws/stats");
-
-  // Handle WebSocket connection for attack logs
   useEffect(() => {
+    const ws = new WebSocket('ws://localhost:5000/ws/server-health');
+
     ws.onopen = () => {
-      console.log("WebSocket for attack logs connected");
-      ws.send("get_attack_logs"); // Request to get attack logs from backend
+      console.log('WebSocket connection opened');
+      setStatus('Connected');
+      ws.send('get_attack_logs');
     };
 
     ws.onmessage = (event) => {
+      console.log('Received data from backend:', event.data);
       const data = JSON.parse(event.data);
-      if (data.type === "new_log") {
-        setAttackLogs((prevLogs) => [data.log, ...prevLogs]); // Add new log
-      } else if (data.type === "deleted_log") {
-        setAttackLogs((prevLogs) =>
-          prevLogs.filter((log) => log.id !== data.logId) // Remove deleted log
-        );
-      }
+      setAttackLogs(data);
     };
 
     ws.onerror = (error) => {
-      console.error("WebSocket error:", error);
+      console.error('WebSocket error:', error);
+      setStatus('Error connecting to WebSocket');
     };
 
     ws.onclose = () => {
-      console.log("WebSocket for attack logs disconnected");
+      console.log('WebSocket connection closed');
+      setStatus('Disconnected');
     };
 
     return () => {
@@ -41,139 +34,35 @@ const AttackLogs = () => {
     };
   }, []);
 
-  // Handle WebSocket connection for stats updates
-  useEffect(() => {
-    wsStats.onopen = () => {
-      console.log("WebSocket for stats connected");
-      wsStats.send("get_stats"); // Request to get system stats from backend
-    };
-
-    wsStats.onmessage = (event) => {
-      const data = JSON.parse(event.data);
-      console.log("Stats data:", data);
-      // Handle stats data updates here
-    };
-
-    wsStats.onerror = (error) => {
-      console.error("WebSocket error:", error);
-    };
-
-    wsStats.onclose = () => {
-      console.log("WebSocket for stats disconnected");
-    };
-
-    return () => {
-      wsStats.close();
-    };
-  }, []);
-
-  // Fetch attack logs initially from backend
-  const fetchLogs = async () => {
-    try {
-      setLoading(true);
-      const response = await axios.get("http://localhost:5000/api/get-attack-logs");
-      setAttackLogs(response.data);
-    } catch (error) {
-      console.error("Error fetching attack logs:", error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // Add a new attack log sample (POST request)
-  const handleAddSample = async () => {
-    try {
-      setAdding(true);
-      await axios.post("http://localhost:5000/api/add-sample");
-    } catch (error) {
-      console.error("Error adding sample attack log:", error);
-    } finally {
-      setAdding(false);
-    }
-  };
-
-  // Delete an attack log (DELETE request)
-  const handleDelete = async (logId) => {
-    if (!window.confirm("Are you sure you want to delete this log?")) return;
-
-    try {
-      setDeletingId(logId);
-      await axios.delete(`http://localhost:5000/api/attack-logs/${logId}`);
-    } catch (error) {
-      console.error("Error deleting attack log:", error);
-    } finally {
-      setDeletingId(null);
-    }
-  };
-
-  useEffect(() => {
-    fetchLogs(); // Fetch logs on initial load
-  }, []);
-
-  if (loading) {
-    return <p>Loading attack logs...</p>;
-  }
-
   return (
-    <div style={{ padding: "20px", fontFamily: "Arial, sans-serif" }}>
-      <h2>Attack Logs</h2>
-
-      <button
-        onClick={handleAddSample}
-        disabled={adding}
-        style={{
-          padding: "10px 20px",
-          backgroundColor: "#3182ce",
-          color: "white",
-          border: "none",
-          borderRadius: "5px",
-          cursor: adding ? "not-allowed" : "pointer",
-          marginBottom: "20px",
-        }}
-      >
-        {adding ? "Adding..." : "Add Sample Log"}
-      </button>
-
+    <div style={styles.container}>
+      <h2 style={styles.heading}>Live Attack Response Logs</h2>
+      <p style={styles.status}>WebSocket Status: <strong>{status}</strong></p>
       {attackLogs.length === 0 ? (
-        <p>No attack logs found.</p>
+        <p style={styles.noData}>No attack logs received yet.</p>
       ) : (
-        <table style={{ width: "100%", borderCollapse: "collapse" }}>
-          <thead style={{ backgroundColor: "#f7fafc" }}>
+        <table style={styles.table}>
+          <thead>
             <tr>
-              <th style={thTdStyle}>Timestamp</th>
-              <th style={thTdStyle}>Type</th>
-              <th style={thTdStyle}>Source IP</th>
-              <th style={thTdStyle}>Target</th>
-              <th style={thTdStyle}>Severity</th>
-              <th style={thTdStyle}>Action</th>
-              <th style={thTdStyle}>Delete</th>
+              <th style={styles.th}>ID</th>
+              <th style={styles.th}>Timestamp</th>
+              <th style={styles.th}>Type</th>
+              <th style={styles.th}>Source IP</th>
+              <th style={styles.th}>Target</th>
+              <th style={styles.th}>Severity</th>
+              <th style={styles.th}>Action</th>
             </tr>
           </thead>
           <tbody>
             {attackLogs.map((log) => (
-              <tr key={log.id} style={{ backgroundColor: "#fff" }}>
-                <td style={thTdStyle}>{new Date(log.timestamp).toLocaleString()}</td>
-                <td style={thTdStyle}>{log.type}</td>
-                <td style={thTdStyle}>{log.source_ip}</td>
-                <td style={thTdStyle}>{log.target}</td>
-                <td style={thTdStyle}>{log.severity}</td>
-                <td style={thTdStyle}>{log.action}</td>
-                <td style={thTdStyle}>
-                  <button
-                    onClick={() => handleDelete(log.id)}
-                    disabled={deletingId === log.id}
-                    style={{
-                      backgroundColor: "#e53e3e",
-                      color: "white",
-                      border: "none",
-                      padding: "6px 12px",
-                      borderRadius: "4px",
-                      cursor: deletingId === log.id ? "not-allowed" : "pointer",
-                    }}
-                  >
-                    {deletingId === log.id ? "Deleting..." : "Delete"}
-                  </button>
-                </td>
+              <tr key={log.id} style={styles.row}>
+                <td style={styles.td}>{log.id}</td>
+                <td style={styles.td}>{new Date(log.timestamp).toLocaleString()}</td>
+                <td style={styles.td}>{log.type}</td>
+                <td style={styles.td}>{log.source_ip}</td>
+                <td style={styles.td}>{log.target}</td>
+                <td style={styles.td}>{log.severity}</td>
+                <td style={styles.td}>{log.action}</td>
               </tr>
             ))}
           </tbody>
@@ -183,12 +72,50 @@ const AttackLogs = () => {
   );
 };
 
-// Style for table cells and headers
-const thTdStyle = {
-  border: "1px solid #ccc",
-  padding: "8px",
-  textAlign: "left",
-  fontSize: "14px",
+const styles = {
+  container: {
+    padding: '2rem',
+    fontFamily: 'Segoe UI, sans-serif',
+    backgroundColor: '#f9f9f9',
+    borderRadius: '10px',
+    boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
+  },
+  heading: {
+    fontSize: '28px',
+    marginBottom: '1rem',
+    color: '#333',
+    textAlign: 'center',
+  },
+  status: {
+    fontSize: '16px',
+    color: '#555',
+    textAlign: 'center',
+    marginBottom: '1rem',
+  },
+  noData: {
+    textAlign: 'center',
+    fontSize: '18px',
+    color: '#777',
+    marginTop: '1rem',
+  },
+  table: {
+    width: '100%',
+    borderCollapse: 'collapse',
+    marginTop: '1rem',
+  },
+  th: {
+    backgroundColor: '#007BFF',
+    color: 'white',
+    padding: '10px',
+    textAlign: 'left',
+  },
+  td: {
+    padding: '10px',
+    borderBottom: '1px solid #ddd',
+  },
+  row: {
+    backgroundColor: '#fff',
+  },
 };
 
-export default AttackLogs;
+export default Response;
