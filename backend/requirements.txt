@@ -1,6 +1,10 @@
 fastapi
-uvicorn[standard]
-sqlalchemy
-pydantic 
+uvicorn
 gunicorn
+sqlalchemy
+pydantic
+python-dotenv
+requests
 slowapi
+psutil
+flask
