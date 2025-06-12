@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # Web Framework
 fastapi==0.104.1
 uvicorn==0.24.0
@@ -51,3 +52,15 @@ zerotier==0.1.0
 # New dependencies
 websockets==12.0
 python-iptables==1.0.0 
+=======
+fastapi
+uvicorn
+gunicorn
+sqlalchemy
+pydantic
+python-dotenv
+requests
+slowapi
+psutil
+flask
+>>>>>>> 6ad27bcb97de6415df728ea983c9da8a0cf6de63
