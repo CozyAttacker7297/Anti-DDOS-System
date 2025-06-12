@@ -1,7 +1,7 @@
 from sqlalchemy.orm import Session
 from . import models, schemas
+from .models.attack_log import AttackLog
 
-# CRUD for Server
 def get_servers(db: Session):
     return db.query(models.Server).filter(models.Server.is_active == True).all()
 
@@ -19,7 +19,6 @@ def delete_server(db: Session, server_id: int):
         db.commit()
     return server
 
-# CRUD for Alert
 def get_alerts(db: Session, skip: int = 0, limit: int = 10):
     return db.query(models.Alert).offset(skip).limit(limit).all()
 
@@ -37,25 +36,6 @@ def delete_alert(db: Session, alert_id: int):
         db.commit()
     return alert
 
-# CRUD for SecurityEvent
-def get_security_events(db: Session, skip: int = 0, limit: int = 10):
-    return db.query(models.SecurityEvent).offset(skip).limit(limit).all()
-
-def create_security_event(db: Session, event: schemas.SecurityEventCreate):
-    db_event = models.SecurityEvent(**event.dict())
-    db.add(db_event)
-    db.commit()
-    db.refresh(db_event)
-    return db_event
-
-def delete_security_event(db: Session, event_id: int):
-    event = db.query(models.SecurityEvent).filter(models.SecurityEvent.id == event_id).first()
-    if event:
-        db.delete(event)
-        db.commit()
-    return event
-
-# CRUD for BlockedIP
 def get_blocked_ips(db: Session):
     return db.query(models.BlockedIP).all()
 
@@ -73,7 +53,6 @@ def delete_blocked_ip(db: Session, ip_id: int):
         db.commit()
     return blocked_ip
 
-# CRUD for AttackLog
 def get_attack_logs(db: Session, skip: int = 0, limit: int = 10):
     return db.query(models.AttackLog).offset(skip).limit(limit).all()
 
@@ -91,11 +70,32 @@ def delete_attack_log(db: Session, attack_log_id: int):
         db.commit()
     return attack_log
 
-# Add server CRUD for any additional logic
-def add_server(db: Session, server_data: dict):
-    # Assuming the data contains information needed to create a Server
-    db_server = models.Server(**server_data)
-    db.add(db_server)
+def get_security_events(db: Session, skip: int = 0, limit: int = 10):
+    return db.query(models.SecurityEvent).offset(skip).limit(limit).all()
+
+def create_security_event(db: Session, event: schemas.SecurityEventCreate):
+    db_event = models.SecurityEvent(**event.dict())
+    db.add(db_event)
     db.commit()
-    db.refresh(db_server)
-    return db_server
+    db.refresh(db_event)
+    return db_event
+
+def get_security_event(db: Session, event_id: int):
+    return db.query(models.SecurityEvent).filter(models.SecurityEvent.id == event_id).first()
+
+def update_security_event(db: Session, event_id: int, event: schemas.SecurityEventUpdate):
+    db_event = db.query(models.SecurityEvent).filter(models.SecurityEvent.id == event_id).first()
+    if db_event:
+        update_data = event.dict(exclude_unset=True)
+        for key, value in update_data.items():
+            setattr(db_event, key, value)
+        db.commit()
+        db.refresh(db_event)
+    return db_event
+
+def delete_security_event(db: Session, event_id: int):
+    event = db.query(models.SecurityEvent).filter(models.SecurityEvent.id == event_id).first()
+    if event:
+        db.delete(event)
+        db.commit()
+    return event

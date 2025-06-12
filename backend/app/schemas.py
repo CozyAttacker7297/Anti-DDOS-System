@@ -39,6 +39,9 @@ class SecurityEventBase(BaseModel):
     event_type: str
     description: str
 
+class SecurityEventCreate(SecurityEventBase):
+    pass
+
 class SecurityEvent(SecurityEventBase):
     id: int
     timestamp: datetime
@@ -51,6 +54,9 @@ class SecurityEvent(SecurityEventBase):
 class BlockedIPBase(BaseModel):
     ip: str
     reason: str
+
+class BlockedIPCreate(BlockedIPBase):
+    pass
 
 class BlockedIP(BlockedIPBase):
     id: int
@@ -67,6 +73,9 @@ class AttackLogBase(BaseModel):
     target: str
     severity: str
     action: str
+
+class AttackLogCreate(AttackLogBase):
+    pass
 
 class AttackLog(AttackLogBase):
     id: int

@@ -1,31 +1,45 @@
 from sqlalchemy import create_engine
-from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
+import os
+from pathlib import Path
+from dotenv import load_dotenv
+from .models.base import Base  # Import Base from models.base
+
+# Load environment variables
+load_dotenv()
+
+# Get the directory of the current file
+BASE_DIR = Path(__file__).resolve().parent.parent
+
+# Create the database directory if it doesn't exist
+db_dir = BASE_DIR / "data"
+db_dir.mkdir(exist_ok=True)
 
 # Database URL
-SQLALCHEMY_DATABASE_URL = "sqlite:///./app.db"  # You can replace it with PostgreSQL, MySQL, etc.
+SQLALCHEMY_DATABASE_URL = f"sqlite:///{db_dir}/app.db"
 
-# Create engine to connect to the database
+# Create engine
 engine = create_engine(
-    SQLALCHEMY_DATABASE_URL, connect_args={"check_same_thread": False}  # Needed for SQLite
+    SQLALCHEMY_DATABASE_URL, connect_args={"check_same_thread": False}
 )
 
-# Create a session local to manage connections
+# Create SessionLocal class
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
-# Create a base class for all your models
-Base = declarative_base()
-
-# Import models to ensure they are registered with SQLAlchemy's Base
-from . import models
-
-# Dependency for getting the database session
+# Dependency to get DB session
 def get_db():
+    """Get database session."""
     db = SessionLocal()
     try:
         yield db
     finally:
-        db.close()  # Fixing the typo here (removed 'a' at the end)
-        
-# Create all tables in the database (for SQLite, Postgres, etc.)
-Base.metadata.create_all(bind=engine)
+        db.close()
+
+def init_db():
+    """Initialize the database."""
+    # Import all models here to ensure they are registered with Base
+    from .models import Base, Server, SecurityEvent, AttackLog, Alert, User, TrafficStats
+    
+    # Drop all tables and recreate them
+    Base.metadata.drop_all(bind=engine)
+    Base.metadata.create_all(bind=engine)

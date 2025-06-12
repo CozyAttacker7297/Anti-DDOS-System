@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import axios from 'axios';
 import './StatsContainer.css';
 
 const StatCard = ({ title, value, change, type, isPositive }) => (
@@ -16,77 +17,93 @@ const StatsContainer = () => {
   const [stats, setStats] = useState([
     {
       title: 'ATTACKS BLOCKED',
-      value: '1,248',
-      change: '12% from yesterday',
+      value: '0',
+      change: 'Real-time',
       type: 'danger',
       isPositive: false
     },
     {
       title: 'MALICIOUS REQUESTS',
-      value: '5,732',
-      change: '8% from yesterday',
+      value: '0',
+      change: 'Real-time',
       type: 'warning',
       isPositive: true
     },
     {
       title: 'CLEAN TRAFFIC',
-      value: '2.1M',
-      change: '3% from yesterday',
+      value: '0',
+      change: 'Real-time',
       type: 'success',
       isPositive: true
     },
     {
       title: 'UPTIME',
-      value: '99.98%',
-      change: 'All systems normal',
+      value: '00:00:00',
+      change: 'No attacks yet',
       type: 'info',
       isPositive: true
     }
   ]);
 
-  // WebSocket state
-  const [socket, setSocket] = useState(null);
+  // Function to fetch stats
+  const fetchStats = async () => {
+    try {
+      const response = await axios.get('http://localhost:5000/api/dashboard/stats');
+      console.log('Received stats:', response.data);
+      
+      // Update all stats except uptime
+      const updatedStats = stats.map((stat, index) => {
+        if (stat.title === 'UPTIME') {
+          return stat; // Keep uptime as is, we'll update it separately
+        }
+        return response.data[index];
+      });
+      
+      setStats(updatedStats);
+    } catch (error) {
+      console.error('Error fetching stats:', error);
+    }
+  };
+
+  // Function to update uptime timer
+  const updateUptime = () => {
+    setStats(prevStats => {
+      return prevStats.map(stat => {
+        if (stat.title === 'UPTIME') {
+          // Only update if we have a valid uptime value
+          if (stat.value !== '00:00:00' && stat.change === 'Since last attack') {
+            const [hours, minutes, seconds] = stat.value.split(':').map(Number);
+            let totalSeconds = hours * 3600 + minutes * 60 + seconds + 1;
+            const newHours = Math.floor(totalSeconds / 3600);
+            const newMinutes = Math.floor((totalSeconds % 3600) / 60);
+            const newSeconds = totalSeconds % 60;
+            return {
+              ...stat,
+              value: `${String(newHours).padStart(2, '0')}:${String(newMinutes).padStart(2, '0')}:${String(newSeconds).padStart(2, '0')}`
+            };
+          }
+        }
+        return stat;
+      });
+    });
+  };
 
   useEffect(() => {
-    const ws = new WebSocket('ws://localhost:5000/ws/stats');
+    // Initial fetch
+    fetchStats();
 
-    // When the WebSocket is open
-    ws.onopen = () => {
-      console.log('WebSocket connection established');
-      ws.send('get_stats'); // Request stats from the backend
-    };
+    // Set up polling for stats every 5 seconds
+    const statsInterval = setInterval(fetchStats, 5000);
+    
+    // Set up timer update every second
+    const timerInterval = setInterval(updateUptime, 1000);
 
-    // On receiving a message (i.e., updated stats)
-    ws.onmessage = (event) => {
-      const updatedStats = JSON.parse(event.data);
-      console.log('Updated stats received:', updatedStats);
-      setStats(updatedStats); // Update state with new stats
-    };
-
-    // Handle WebSocket errors
-    ws.onerror = (error) => {
-      console.error('WebSocket Error:', error);
-    };
-
-    // Handle WebSocket closure
-    ws.onclose = (event) => {
-      console.log('WebSocket connection closed', event);
-    };
-
-    // Save WebSocket instance to state
-    setSocket(ws);
-
-    // Cleanup WebSocket connection on component unmount
+    // Cleanup
     return () => {
-      // Ensure WebSocket is open before trying to close it
-      if (ws && ws.readyState === WebSocket.OPEN) {
-        console.log('Closing WebSocket connection');
-        ws.close(); // Close WebSocket properly
-      } else {
-        console.log('WebSocket already closed or never opened');
-      }
+      clearInterval(statsInterval);
+      clearInterval(timerInterval);
     };
-  }, []); // Empty dependency array ensures this runs once when the component mounts
+  }, []);
 
   return (
     <div className="stats-container">

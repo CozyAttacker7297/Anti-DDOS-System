@@ -1,0 +1,27 @@
+# Web Framework
+fastapi>=0.109.0
+uvicorn[standard]>=0.27.0
+python-multipart>=0.0.6
+python-jose[cryptography]>=3.3.0
+passlib[bcrypt]>=1.7.4
+email-validator>=2.1.0.post1
+
+# Database
+sqlalchemy>=2.0.25
+alembic>=1.13.1
+psycopg2-binary>=2.9.9  # For PostgreSQL
+
+# Security & Authentication
+python-dotenv>=1.0.0
+
+# Utilities
+pydantic>=2.6.1
+pydantic-settings>=2.1.0
+requests>=2.31.0
+httpx>=0.26.0
+python-dateutil>=2.8.2
+psutil>=5.9.8  # For system monitoring
+
+# Logging & Monitoring
+structlog>=24.1.0
+python-json-logger>=2.0.7 

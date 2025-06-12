@@ -4,13 +4,10 @@ import Header from './Header';
 import StatsContainer from './StatsContainer';
 import SecurityEvents from './SecurityEvents';
 import BlockIPForm from '../IPTable/BlockIPForm';
-import AttackLogs from './AttackLogs';
 import ServerHealthDashboard from './ServerHealth';
 import Alerts from '../Alerts/Alerts';
 import './Dashboard.css';
 import Response from '../../pages/Response';
-
-
 
 const TAB_TITLES = {
   dashboard: 'DASHBOARD',
@@ -33,13 +30,11 @@ const Dashboard = () => {
               <SecurityEvents />
               <BlockIPForm />
             </div>
-            <AttackLogs />
             <ServerHealthDashboard />
           </>
         );
       case 'response':
-  return <Response />;
-
+        return <Response />;
       case 'servers':
         return <ServerHealthDashboard />;
       case 'blocked-ip':

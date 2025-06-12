@@ -6,65 +6,43 @@ import './SecurityEvents.css';
 const SecurityEvents = () => {
   const chartRef = useRef(null);
   const chartInstance = useRef(null);
-  const [attacksData, setAttacksData] = useState([0, 0, 0, 0, 0, 0]); // Initial data with zeros
+  const [attacksData, setAttacksData] = useState([0, 0, 0, 0, 0, 0]);
   const [labels, setLabels] = useState(['SQLi', 'XSS', 'DDoS', 'Brute Force', 'Port Scan', 'Malware']);
-  const [loading, setLoading] = useState(true);  // Loading state to handle fetching
-  const [error, setError] = useState(null);      // Error state for any API issues
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [lastUpdate, setLastUpdate] = useState(null);
 
-  // WebSocket connection setup
-  const connectWebSocket = () => {
-    const ws = new WebSocket('ws://localhost:000/ws/stats');
-    ws.onopen = () => {
-      console.log('WebSocket connected');
-      ws.send('get_stats');  // Request stats from the server
-    };
-
-    ws.onmessage = (event) => {
-      const data = JSON.parse(event.data);
-      console.log('Received stats from WebSocket:', data);
-      setAttacksData(data.map(stat => parseInt(stat.value.replace(/[^\d.-]/g, ''))));  // Convert to integers
-      setLabels(data.map(stat => stat.title));
-    };
-
-    ws.onerror = (error) => {
-      console.error('WebSocket Error:', error);
-      setError('Failed to connect to WebSocket');
-    };
-
-    ws.onclose = () => {
-      console.log('WebSocket disconnected');
-    };
-
-    return ws;
-  };
-
-  // Fetch attack logs via HTTP
-  const fetchAttackLogs = async () => {
-    setLoading(true);
+  // Function to fetch attack statistics
+  const fetchAttackStats = async () => {
     try {
-      const response = await axios.get('/api/get-attack-logs');
-      console.log('Received attack logs:', response.data);
-      // Handle attack logs as necessary here
-    } catch (err) {
-      console.error('Error fetching attack logs:', err);
-      setError('Failed to fetch attack logs');
-    } finally {
+      setError(null);
+      const response = await axios.get('http://localhost:5000/api/dashboard/attack-stats');
+      console.log('Received attack stats:', response.data);
+      
+      if (response.data && response.data.labels && response.data.data) {
+        setLabels(response.data.labels);
+        setAttacksData(response.data.data);
+        setLastUpdate(new Date());
+      } else {
+        throw new Error('Invalid data format received from server');
+      }
+      setLoading(false);
+    } catch (error) {
+      console.error('Error fetching attack stats:', error);
+      setError(error.response?.data?.detail || error.message || 'Failed to fetch attack statistics');
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    const ws = connectWebSocket();  // Connect to WebSocket on mount
+    // Initial fetch
+    fetchAttackStats();
 
-    // Fetch attack logs on initial load
-    fetchAttackLogs();
+    // Set up polling every 5 seconds
+    const interval = setInterval(fetchAttackStats, 5000);
 
-    // Cleanup WebSocket on unmount
-    return () => {
-      if (ws) {
-        ws.close();
-      }
-    };
+    // Cleanup
+    return () => clearInterval(interval);
   }, []);
 
   useEffect(() => {
@@ -84,28 +62,31 @@ const SecurityEvents = () => {
             label: 'Attacks Blocked (Last 24h)',
             data: attacksData,
             backgroundColor: [
-              '#4e73df', // Blue
-              '#1cc88a', // Green
-              '#36b9cc', // Teal
-              '#f6c23e', // Yellow
-              '#e74a3b', // Red
-              '#f8d7da'  // Light Red
+              '#e74c3c', // Red for SQLi
+              '#f39c12', // Orange for XSS
+              '#9b59b6', // Purple for DDoS
+              '#3498db', // Blue for Brute Force
+              '#1abc9c', // Teal for Port Scan
+              '#e67e22'  // Dark Orange for Malware
             ],
             borderColor: [
-              '#4e73df',
-              '#1cc88a',
-              '#36b9cc',
-              '#f6c23e',
-              '#e74a3b',
-              '#f8d7da'
+              '#c0392b',
+              '#d35400',
+              '#8e44ad',
+              '#2980b9',
+              '#16a085',
+              '#d35400'
             ],
-            borderWidth: 2
+            borderWidth: 1
           }]
         },
         options: {
           responsive: true,
           maintainAspectRatio: false,
           plugins: {
+            legend: {
+              display: false
+            },
             tooltip: {
               enabled: true,
               backgroundColor: 'rgba(0,0,0,0.7)',
@@ -121,7 +102,7 @@ const SecurityEvents = () => {
             }
           },
           animation: {
-            duration: 1000, // Smooth animation for bar chart
+            duration: 1000,
             easing: 'easeInOutCubic'
           },
           scales: {
@@ -130,19 +111,28 @@ const SecurityEvents = () => {
               ticks: {
                 color: '#8e8e8e',
                 font: {
-                  size: 14
-                }
+                  size: 12
+                },
+                precision: 0
               },
               grid: {
                 color: '#ddd',
                 borderColor: '#ddd'
+              },
+              title: {
+                display: true,
+                text: 'Number of Attacks',
+                color: '#8e8e8e',
+                font: {
+                  size: 12
+                }
               }
             },
             x: {
               ticks: {
                 color: '#8e8e8e',
                 font: {
-                  size: 14
+                  size: 12
                 }
               },
               grid: {
@@ -154,17 +144,33 @@ const SecurityEvents = () => {
         }
       });
     }
-  }, [attacksData, labels]);  // Re-render the chart when data or labels change
+  }, [attacksData, labels]);
 
   return (
     <div className="dashboard-section">
       <div className="section-header">
         <h2 className="section-title">Recent Security Events</h2>
-        <button className="btn btn-primary">View All</button>
+        <div className="header-actions">
+          {lastUpdate && (
+            <span className="last-update">
+              Last updated: {lastUpdate.toLocaleTimeString()}
+            </span>
+          )}
+          <button className="btn btn-primary" onClick={fetchAttackStats}>
+            Refresh
+          </button>
+        </div>
       </div>
 
-      {loading && <div>Loading attack logs...</div>}
-      {error && <div className="error">{error}</div>}
+      {loading && <div className="loading">Loading attack statistics...</div>}
+      {error && (
+        <div className="error">
+          <p>{error}</p>
+          <button className="btn btn-primary" onClick={fetchAttackStats}>
+            Retry
+          </button>
+        </div>
+      )}
 
       <div className="chart-container">
         <canvas ref={chartRef}></canvas>
