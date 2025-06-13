@@ -6,30 +6,45 @@ import json
 from concurrent.futures import ThreadPoolExecutor
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
+import sys
 
 # Configuration
 TARGET_URL = "http://localhost:5000"
-NORMAL_ENDPOINTS = ["/api/test-connection", "/api/server-health"]
+THREADS = 20  # More threads for dramatic increases
+REQUEST_DELAY = 0.001  # Much faster base requests
+BATCH_SIZE = 200  # Larger batch size for dramatic increases
+REQUEST_TIMEOUT = 5
+TOTAL_REQUESTS = 10000
+
+# Attack types and their weights - More aggressive distribution
+ATTACK_TYPES = {
+    "flood": 0.7,      # 70% flood attacks for dramatic increases
+    "injection": 0.15, # 15% injection attacks
+    "scan": 0.1,       # 10% scan attacks
+    "brute_force": 0.05  # 5% brute force attacks
+}
+
+# Endpoints to target with weights - More focus on predict-attack
 ATTACK_ENDPOINTS = [
-    "/api/test-connection",
-    "/api/server-health",
-    "/api/predict-attack"  # if implemented
+    ("/api/predict-attack", 0.9),   # 90% of requests
+    ("/api/server-health", 0.05),   # 5% of requests
+    ("/api/test-connection", 0.05)   # 5% of requests
 ]
 
-# Attack Configuration - RESOURCE OPTIMIZED MODE
-TOTAL_REQUESTS = 50  # Reduced to 50 requests for testing
-THREADS = 5  # Reduced threads for testing
-CLEAN_TRAFFIC_RATIO = 0.3  # 30% clean traffic, 70% malicious
-REQUEST_DELAY = 0.2  # Increased delay for better visibility
-BATCH_SIZE = 5  # Reduced batch size
-FLOOD_REQUESTS_PER_ATTACK = 3  # Reduced flood requests per attack
+# Attack intensity levels with more dramatic ranges
+INTENSITY_LEVELS = {
+    "low": {"rate": (10000, 50000), "payload": (100000, 500000)},
+    "medium": {"rate": (50000, 150000), "payload": (500000, 2000000)},
+    "high": {"rate": (150000, 300000), "payload": (2000000, 5000000)},
+    "extreme": {"rate": (300000, 500000), "payload": (5000000, 10000000)}
+}
 
-# Attack type distribution - Optimized
-ATTACK_TYPES = {
-    "flood": 0.8,  # 80% flood attacks
-    "injection": 0.1,  # 10% SQL injection
-    "scan": 0.05,  # 5% port scanning
-    "brute_force": 0.05  # 5% brute force
+# Burst attack patterns with more dramatic sizes
+BURST_PATTERNS = {
+    "sudden_spike": {"probability": 0.4, "size": (500, 1000)},
+    "gradual_increase": {"probability": 0.2, "size": (300, 800)},
+    "wave": {"probability": 0.3, "size": (400, 900)},
+    "constant_high": {"probability": 0.1, "size": (800, 1500)}
 }
 
 # Advanced User-Agent rotation to avoid detection
@@ -135,62 +150,76 @@ def create_session():
     session.mount("https://", adapter)
     return session
 
-def get_random_headers(fake_ip, attack_type):
-    # Rotate User-Agent to avoid detection
-    user_agent = random.choice(USER_AGENTS)
+def get_random_headers(source_ip, attack_type, intensity="medium"):
+    """Generate random headers based on attack type and intensity."""
+    user_agents = [
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36",
+        "Mozilla/5.0 (iPad; CPU OS 14_7_1 like Mac OS X) AppleWebKit/605.1.15",
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+        "Mozilla/5.0 (iPhone; CPU iPhone OS 14_7_1 like Mac OS X) AppleWebKit/605.1.15",
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:90.0) Gecko/20100101 Firefox/90.0",
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Edge/91.0.864.59",
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36 OPR/77.0.4054.277",
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36 Edg/91.0.864.59",
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36 Vivaldi/4.1",
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36 Brave/1.24.85"
+    ]
     
-    # Generate random request ID
-    request_id = f"{random.randint(1000000, 9999999)}-{random.randint(1000, 9999)}"
-    
-    # Base headers with advanced evasion
     headers = {
-        "User-Agent": user_agent,
-        "Accept": "*/*",
+        "User-Agent": random.choice(user_agents),
+        "X-Forwarded-For": source_ip,
+        "Accept": "application/json",
         "Accept-Language": "en-US,en;q=0.9",
-        "Accept-Encoding": "gzip, deflate, br",
         "Connection": "keep-alive",
         "Cache-Control": "no-cache",
         "Pragma": "no-cache",
-        "X-Request-ID": request_id,
-        "X-Forwarded-For": fake_ip,
-        "X-Real-IP": fake_ip,
-        "X-Attack-Intensity": "maximum",
-        "X-Burst-Count": str(random.randint(50, 200))
+        "X-Request-ID": f"{random.randint(1000000, 9999999)}-{random.randint(1000, 9999)}",
+        "X-Attack-Intensity": intensity,
+        "X-Timestamp": str(int(time.time() * 1000))
     }
     
-    # Add attack-specific headers with evasion
-    if attack_type == "flood":
+    # Add attack-specific headers with varying intensity
+    if attack_type == "injection":
         headers.update({
-            "X-Flood-Attack": "true",
-            "Content-Type": "application/json",
-            "X-Flood-Intensity": "maximum",
-            "X-Flood-Type": "burst",
-            "X-Burst-Size": str(random.randint(50, 200)),
-            "X-Request-Rate": str(random.randint(10000, 100000))
-        })
-    elif attack_type == "injection":
-        headers.update({
-            "X-SQL-Injection": "true",
-            "Content-Type": "application/x-www-form-urlencoded",
-            "X-Injection-Type": "advanced",
-            "X-Injection-Intensity": "maximum",
-            "X-Injection-Attempts": "1000"
+            "X-SQL-Injection": "1' OR '1'='1",
+            "X-XSS-Attack": "<script>alert('xss')</script>",
+            "X-Command-Injection": "& cat /etc/passwd",
+            "X-Path-Injection": "' or '1'='1",
+            "X-NoSQL-Injection": '{"$gt": ""}',
+            "X-Template-Injection": "${7*7}",
+            "X-LDAP-Injection": "*)(uid=*))(|(uid=*"
         })
     elif attack_type == "scan":
         headers.update({
-            "X-Scan-Type": "vulnerability",
+            "X-Scan": "true",
             "X-Port-Scan": "true",
-            "X-Scan-Intensity": "maximum",
-            "X-Scan-Depth": "deep",
-            "X-Scan-Attempts": "1000"
+            "X-Vulnerability-Scan": "true",
+            "X-Directory-Scan": "true",
+            "X-Security-Scan": "true",
+            "X-Network-Scan": "true",
+            "X-Web-Scan": "true"
         })
     elif attack_type == "brute_force":
         headers.update({
             "X-Brute-Force": "true",
-            "Content-Type": "application/json",
-            "X-Brute-Intensity": "maximum",
-            "X-Brute-Attempts": "1000",
-            "X-Brute-Delay": "0"
+            "X-Auth-Attempt": "true",
+            "X-Credential-Spray": "true",
+            "X-Password-Guess": "true",
+            "X-Login-Attempt": "true",
+            "X-Account-Enumeration": "true"
+        })
+    elif attack_type == "flood":
+        rate_range = INTENSITY_LEVELS[intensity]["rate"]
+        headers.update({
+            "X-Flood-Attack": "true",
+            "X-Request-Rate": str(random.randint(*rate_range)),
+            "X-Burst-Size": str(random.randint(100, 1000)),
+            "X-Flood-Type": random.choice(["burst", "sustained", "pulse"]),
+            "X-Attack-Pattern": random.choice(["random", "sequential", "burst"]),
+            "X-Connection-Type": random.choice(["keep-alive", "close"]),
+            "X-Request-Method": random.choice(["GET", "POST", "PUT", "DELETE"])
         })
     
     return headers
@@ -198,7 +227,7 @@ def get_random_headers(fake_ip, attack_type):
 def send_clean_traffic(session):
     for endpoint in NORMAL_ENDPOINTS:
         headers = get_random_headers("127.0.0.1", "clean")
-        send_request(session, "GET", f"{TARGET_URL}{endpoint}", headers)  # Changed from POST to GET
+        send_request(session, "GET", f"{TARGET_URL}{endpoint}", headers)
 
 def send_request(session, method, url, headers, data=None, timeout=3):  # Increased timeout
     try:
@@ -216,130 +245,138 @@ def send_request(session, method, url, headers, data=None, timeout=3):  # Increa
         return None
 
 def send_malicious_traffic(session):
-    try:
-        attack_type = random.choices(
-            list(ATTACK_TYPES.keys()),
-            weights=list(ATTACK_TYPES.values())
+    # Determine burst pattern
+    burst_pattern = random.choices(
+        list(BURST_PATTERNS.keys()),
+        weights=[p["probability"] for p in BURST_PATTERNS.values()]
+    )[0]
+    
+    # Calculate burst size based on pattern
+    burst_size = random.randint(*BURST_PATTERNS[burst_pattern]["size"])
+    
+    for _ in range(burst_size):
+        attack_type = random.choices(list(ATTACK_TYPES.keys()), weights=list(ATTACK_TYPES.values()))[0]
+        fake_ip = f"{random.randint(1, 255)}.{random.randint(0, 255)}.{random.randint(0, 255)}.{random.randint(1, 255)}"
+        
+        # Randomly select attack intensity with bias towards higher intensities
+        intensity = random.choices(
+            ["low", "medium", "high", "extreme"],
+            weights=[0.1, 0.2, 0.4, 0.3]  # More weight on high and extreme
         )[0]
         
-        endpoint = random.choice(ATTACK_ENDPOINTS)
-        fake_ip = f"{random.randint(1, 255)}.{random.randint(1, 255)}.{random.randint(1, 255)}.{random.randint(1, 255)}"
+        headers = get_random_headers(fake_ip, attack_type, intensity)
         
-        headers = get_random_headers(fake_ip, attack_type)
+        # Select endpoint based on weights
+        endpoint = random.choices([e[0] for e in ATTACK_ENDPOINTS], weights=[e[1] for e in ATTACK_ENDPOINTS])[0]
         
-        if attack_type == "flood":
+        # Use GET for server-health and test-connection, POST for predict-attack
+        if endpoint in ["/api/server-health", "/api/test-connection"]:
+            method = "GET"
+            data = None
+        else:
+            method = "POST"
+            # Get rate and payload ranges based on intensity
+            rate_range = INTENSITY_LEVELS[intensity]["rate"]
+            payload_range = INTENSITY_LEVELS[intensity]["payload"]
+            
+            # Prepare data for predict-attack with intensity-based values
             data = {
                 "source_ip": fake_ip,
                 "target": endpoint,
-                "request_rate": random.randint(100, 1000),  # Reduced rate
-                "payload_size": random.randint(1000, 10000),  # Reduced payload
-                "request_type": "GET",
-                "user_agent": random.choice(USER_AGENTS),
-                "attack_type": "flood",
-                "flood_intensity": "high",
-                "burst_count": random.randint(5, 20),
-                "burst_size": random.randint(5, 20),
-                "attack_duration": random.randint(1, 10),
-                "evasion_technique": random.choice(["rotation", "delay", "distribution"])
+                "request_rate": random.randint(*rate_range),
+                "payload_size": random.randint(*payload_range),
+                "request_type": method,
+                "user_agent": headers["User-Agent"],
+                "attack_intensity": intensity,
+                "timestamp": int(time.time() * 1000),
+                "burst_pattern": burst_pattern
             }
+            headers["Content-Type"] = "application/json"
+            headers["Accept"] = "application/json"
+        
+        try:
+            if method == "POST":
+                response = session.post(
+                    f"{TARGET_URL}{endpoint}",
+                    headers=headers,
+                    json=data,
+                    timeout=REQUEST_TIMEOUT
+                )
+            else:
+                response = session.get(
+                    f"{TARGET_URL}{endpoint}",
+                    headers=headers,
+                    timeout=REQUEST_TIMEOUT
+                )
             
-            # Send multiple requests in quick succession with evasion
-            for _ in range(FLOOD_REQUESTS_PER_ATTACK):
-                # Add random delay between requests to avoid detection
-                time.sleep(random.uniform(0.001, 0.01))
-                
-                # Rotate headers for each request
-                headers = get_random_headers(fake_ip, attack_type)
-                
-                response = send_request(session, "POST", f"{TARGET_URL}{endpoint}", headers, data)
-                if response:
-                    print(f"🌊 Flood Attack: {endpoint} - Status: {response.status_code}")
-                
-        elif attack_type == "injection":
-            # Use multiple payloads in a single request
-            payloads = random.sample(SQL_INJECTION_PAYLOADS, 1)  # Single payload
-            data = "&".join([
-                f"username={payload}&password={payload}"
-                for payload in payloads
-            ])
-            data += "&advanced=true&bypass=true&intensity=high&attempts=10"
-            
-            response = send_request(session, "POST", f"{TARGET_URL}{endpoint}", headers, data)
-            if response:
-                print(f"💉 SQL Injection: {endpoint} - Status: {response.status_code}")
-            
-        elif attack_type == "scan":
-            # Send multiple scan requests with different patterns
-            for _ in range(3):  # Reduced scan attempts
-                # Add random delay between scans
-                time.sleep(random.uniform(0.001, 0.01))
-                
-                # Rotate headers for each scan
-                headers = get_random_headers(fake_ip, attack_type)
-                
-                response = send_request(session, "GET", f"{TARGET_URL}{endpoint}", headers)
-                if response:
-                    print(f"🔍 Port Scan: {endpoint} - Status: {response.status_code}")
-            
-        elif attack_type == "brute_force":
-            # Send multiple brute force attempts with different patterns
-            for _ in range(3):  # Reduced brute force attempts
-                # Add random delay between attempts
-                time.sleep(random.uniform(0.001, 0.01))
-                
-                # Rotate headers for each attempt
-                headers = get_random_headers(fake_ip, attack_type)
-                
-                data = {
-                    "username": f"admin{random.randint(1, 100)}",
-                    "password": f"password{random.randint(1, 100)}",
-                    "attempt": random.randint(1, 10),
-                    "attack_type": "brute_force",
-                    "intensity": "high",
-                    "attempts": 10,
-                    "evasion_technique": random.choice(["rotation", "delay", "distribution"])
-                }
-                
-                response = send_request(session, "POST", f"{TARGET_URL}{endpoint}", headers, data)
-                if response:
-                    print(f"🔑 Brute Force: {endpoint} - Status: {response.status_code}")
-            
-    except Exception as e:
-        print(f"❌ Malicious Traffic Error: {str(e)}")
+            if response.status_code == 200:
+                print(f"✅ {method} Request: {TARGET_URL}{endpoint} - Status: {response.status_code} - Intensity: {intensity} - Pattern: {burst_pattern}")
+            else:
+                print(f"❌ {method} Request failed: {TARGET_URL}{endpoint} - Status: {response.status_code}")
+                print(f"Response: {response.text}")
+        except Exception as e:
+            print(f"❌ Request error: {str(e)}")
+            if data:
+                print(f"Request data: {data}")
+        
+        # Add very small random delay between requests
+        time.sleep(random.uniform(0.0001, 0.001))
 
 def attack_worker():
-    session = create_session()
+    """Worker function for each thread."""
+    session = requests.Session()
+    session.headers.update({
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        "Accept": "application/json"
+    })
+    
+    # Add retry mechanism
+    retry_strategy = Retry(
+        total=3,
+        backoff_factor=0.1,
+        status_forcelist=[500, 502, 503, 504]
+    )
+    adapter = HTTPAdapter(max_retries=retry_strategy)
+    session.mount("http://", adapter)
+    session.mount("https://", adapter)
+    
     while True:
-        if random.random() < CLEAN_TRAFFIC_RATIO:
-            send_clean_traffic(session)
-        else:
+        try:
             send_malicious_traffic(session)
-        time.sleep(REQUEST_DELAY)
+            # Random delay between attack batches
+            time.sleep(random.uniform(0.0001, 0.001))
+        except Exception as e:
+            print(f"Worker error: {str(e)}")
+            time.sleep(1)  # Wait a bit before retrying
 
 def main():
-    print(f"🚀 Starting RESOURCE OPTIMIZED attack simulation with {TOTAL_REQUESTS} total requests")
+    print(f"🚀 Starting ULTRA-REALISTIC attack simulation with {TOTAL_REQUESTS} total requests")
     print(f"📊 Attack distribution: {ATTACK_TYPES}")
     print(f"👥 Using {THREADS} concurrent threads")
     print(f"🎯 Target: {TARGET_URL}")
-    print(f"⚡ Request delay: {REQUEST_DELAY} seconds")
-    print(f"🌊 Flood requests per attack: {FLOOD_REQUESTS_PER_ATTACK}")
-    print(f"💥 Attack intensity: HIGH")
+    print(f"⚡ Base request delay: {REQUEST_DELAY} seconds")
+    print(f"🌊 Batch size: {BATCH_SIZE}")
+    print(f"💥 Attack intensity levels: {list(INTENSITY_LEVELS.keys())}")
+    print(f"🌪️ Burst patterns: {list(BURST_PATTERNS.keys())}")
     print(f"🛡️ Evasion techniques: Enabled")
     print(f"⏱️ Timeout handling: Optimized")
     print(f"💾 Resource usage: Optimized")
     
+    # Start attack threads
     threads = []
     for _ in range(THREADS):
         thread = threading.Thread(target=attack_worker)
         thread.daemon = True
-        threads.append(thread)
         thread.start()
+        threads.append(thread)
     
+    # Keep main thread alive
     try:
         while True:
             time.sleep(1)
     except KeyboardInterrupt:
         print("\n🛑 Attack simulation stopped by user")
+        sys.exit(0)
 
 if __name__ == "__main__":
     main()

@@ -25,6 +25,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 from .models.attack_log import AttackLog
 from datetime import datetime
+import json
 
 # Load environment variables
 load_dotenv()
@@ -270,59 +271,46 @@ def cleanup_request_counts():
 
 @app.middleware("http")
 async def track_traffic_middleware(request: Request, call_next):
-    """Middleware to track and analyze traffic patterns."""
-    start_time = time.time()
-    client_ip = request.client.host
-    
-    # Initialize or update request count for this IP
-    if client_ip not in request_counts:
-        request_counts[client_ip] = {
-            "count": 0,
-            "last_request": start_time,
-            "first_request": start_time
-        }
-    
-    request_counts[client_ip]["count"] += 1
-    request_counts[client_ip]["last_request"] = start_time
-    
-    # Get request details
-    request_size = len(await request.body())
-    user_agent = request.headers.get("user-agent", "Unknown")
-    
-    # Basic rate limiting check
-    if request_counts[client_ip]["count"] > 1000:  # More than 1000 requests per hour
-        logger.warning(f"Rate limit exceeded for IP: {client_ip}")
-        return JSONResponse(
-            status_code=429,
-            content={"detail": "Rate limit exceeded"}
-        )
-    
-    # Check for suspicious patterns
-    is_malicious = False
-    if request_counts[client_ip]["count"] > 100:  # More than 100 requests per hour
-        is_malicious = True
-        logger.warning(f"Suspicious activity detected from IP: {client_ip}")
-    
-    # Update traffic stats
-    if is_malicious:
-        traffic_stats["malicious_requests"] += 1
-    else:
-        traffic_stats["clean_requests"] += 1
-    traffic_stats["last_update"] = start_time
-    
-    # Update database in background
-    db = SessionLocal()
-    asyncio.create_task(update_traffic_stats_db(db, is_malicious))
-    
-    # Process the request
-    response = await call_next(request)
-    
-    # Add security headers
-    response.headers["X-Content-Type-Options"] = "nosniff"
-    response.headers["X-Frame-Options"] = "DENY"
-    response.headers["X-XSS-Protection"] = "1; mode=block"
-    
-    return response
+    """Middleware to track traffic and detect suspicious activity."""
+    try:
+        # Get client IP
+        client_ip = request.client.host if request.client else "unknown"
+        
+        # Initialize or update request count for this IP
+        if client_ip not in request_counts:
+            request_counts[client_ip] = {"count": 0, "last_request": time.time()}
+        
+        request_counts[client_ip]["count"] += 1
+        request_counts[client_ip]["last_request"] = time.time()
+        
+        # Check for suspicious activity
+        if request_counts[client_ip]["count"] > 100:  # More than 100 requests per minute
+            logger.warning(f"Suspicious activity detected from IP: {client_ip}")
+            # Update traffic stats to mark this as malicious
+            db = SessionLocal()
+            try:
+                await update_traffic_stats_db(db, True)
+                traffic_stats["malicious_requests"] += 1
+            finally:
+                db.close()
+        
+        # Process the request
+        response = await call_next(request)
+        
+        # Update clean traffic stats for successful requests
+        if response.status_code == 200:
+            db = SessionLocal()
+            try:
+                await update_traffic_stats_db(db, False)
+                traffic_stats["clean_requests"] += 1
+            finally:
+                db.close()
+        
+        return response
+        
+    except Exception as e:
+        logger.error(f"Error in track_traffic_middleware: {e}")
+        return await call_next(request)
 
 @app.middleware("http")
 async def error_handling_middleware(request: Request, call_next):
@@ -428,75 +416,112 @@ async def predict_attack(
     request: Request,
     db: Session = Depends(get_db)
 ):
-    """Predict if a request is part of an attack."""
+    """Predict if a request is malicious and update stats."""
     try:
-        # Get request details
-        client_ip = request.client.host
-        request_size = len(await request.body())
-        user_agent = request.headers.get("user-agent", "Unknown")
+        # Get request data
+        data = await request.json()
+        logger.info(f"Received predict-attack request with data: {data}")
         
-        # Get request rate for this IP
-        if client_ip not in request_counts:
-            request_counts[client_ip] = {
-                "count": 0,
-                "last_request": time.time(),
-                "first_request": time.time()
-            }
-        
-        request_rate = request_counts[client_ip]["count"]
-        
-        # Create prediction input
-        prediction_input = AttackPrediction(
-            source_ip=client_ip,
-            target=request.url.path,
-            request_rate=request_rate,
-            payload_size=request_size,
-            request_type=request.method,
-            user_agent=user_agent
-        )
-        
-        # Basic attack detection logic
-        is_attack = False
+        # Extract data with defaults
+        source_ip = data.get("source_ip", "unknown")
+        target = data.get("target", "unknown")
+        request_rate = int(data.get("request_rate", 0))
+        payload_size = int(data.get("payload_size", 0))
+        request_type = data.get("request_type", "GET")
+        user_agent = data.get("user_agent", "unknown")
+
+        # Simple attack detection logic
+        is_malicious = False
         attack_type = None
         severity = "low"
-        
+        action = "monitored"
+
         # Check for suspicious patterns
-        if request_rate > 100:  # More than 100 requests per hour
-            is_attack = True
-            attack_type = "Rate Limit"
+        if request_rate > 1000:  # High request rate
+            is_malicious = True
+            attack_type = "DDoS"
             severity = "high"
-        elif request_size > 1000000:  # More than 1MB payload
-            is_attack = True
-            attack_type = "Large Payload"
+            action = "blocked"
+        elif payload_size > 1000000:  # Large payload
+            is_malicious = True
+            attack_type = "Payload Attack"
             severity = "medium"
-        
-        # Log the attack if detected
-        if is_attack:
-            attack_log = AttackLog(
-                timestamp=datetime.now(),
-                attack_type=attack_type,
-                source_ip=client_ip,
-                target=request.url.path,
-                severity=severity,
-                action="detected"
-            )
-            db.add(attack_log)
-            db.commit()
-        
-        return {
-            "is_attack": is_attack,
+            action = "blocked"
+        elif "sql" in user_agent.lower() or "injection" in user_agent.lower():
+            is_malicious = True
+            attack_type = "SQL Injection"
+            severity = "high"
+            action = "blocked"
+        elif "scan" in user_agent.lower():
+            is_malicious = True
+            attack_type = "Port Scan"
+            severity = "medium"
+            action = "monitored"
+
+        # Update traffic stats in database
+        try:
+            await update_traffic_stats_db(db, is_malicious)
+            logger.info(f"Updated traffic stats - malicious: {is_malicious}")
+        except Exception as e:
+            logger.error(f"Error updating traffic stats: {e}")
+
+        # If malicious, log the attack
+        if is_malicious:
+            try:
+                attack_log = AttackLog(
+                    timestamp=datetime.now(),
+                    attack_type=attack_type,
+                    source_ip=source_ip,
+                    target=target,
+                    severity=severity,
+                    action=action,
+                    status="detected",
+                    description=f"Detected {attack_type} attack",
+                    details={
+                        "request_rate": request_rate,
+                        "payload_size": payload_size,
+                        "request_type": request_type,
+                        "user_agent": user_agent
+                    }
+                )
+                db.add(attack_log)
+                db.commit()
+                logger.info(f"Logged attack: {attack_type} from {source_ip}")
+            except Exception as e:
+                logger.error(f"Error logging attack: {e}")
+                db.rollback()
+
+        # Update in-memory stats
+        if is_malicious:
+            traffic_stats["malicious_requests"] += 1
+        else:
+            traffic_stats["clean_requests"] += 1
+        traffic_stats["last_update"] = time.time()
+
+        response_data = {
+            "is_malicious": is_malicious,
             "attack_type": attack_type,
             "severity": severity,
-            "details": {
-                "source_ip": client_ip,
-                "request_rate": request_rate,
-                "payload_size": request_size,
-                "request_type": request.method
-            }
+            "action": action,
+            "message": f"Request {'blocked' if is_malicious else 'allowed'}"
         }
+        logger.info(f"Sending response: {response_data}")
+        return response_data
+
+    except json.JSONDecodeError as e:
+        logger.error(f"JSON decode error: {str(e)}")
+        logger.error(f"Request body: {await request.body()}")
+        return JSONResponse(
+            status_code=400,
+            content={"detail": "Invalid JSON data"}
+        )
     except Exception as e:
-        logger.error(f"Error predicting attack: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Error in predict_attack: {str(e)}")
+        logger.error(f"Request body: {await request.body()}")
+        return JSONResponse(
+            status_code=500,
+            content={"detail": f"Error processing request: {str(e)}"}
+        )
 
 @app.get("/api/dashboard/stats")
 async def get_stats():
@@ -573,6 +598,65 @@ async def test_traffic(db: Session = Depends(get_db)):
         }
     except Exception as e:
         logger.error(f"Error recording test traffic: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/test-attack")
+async def test_attack(db: Session = Depends(get_db)):
+    """Test endpoint to simulate an attack and update stats."""
+    try:
+        # Create a test attack log
+        attack_log = AttackLog(
+            timestamp=datetime.now(),
+            attack_type="DDoS",
+            source_ip="192.168.1.100",
+            target="/api/admin",
+            severity="high",
+            action="blocked",
+            status="detected",
+            description="Test DDoS attack",
+            details={
+                "method": "POST",
+                "headers": {"User-Agent": "Test Bot"},
+                "payload": "Test payload"
+            }
+        )
+        db.add(attack_log)
+        
+        # Update traffic stats
+        latest_stats = db.query(TrafficStats).order_by(TrafficStats.timestamp.desc()).first()
+        if not latest_stats:
+            latest_stats = TrafficStats(
+                clean_requests=0,
+                malicious_requests=0,
+                total_requests=0,
+                requests_per_second=0.0,
+                bandwidth_usage={"bytes_sent": 0, "bytes_received": 0},
+                active_connections=0,
+                error_rate=0.0,
+                timestamp=datetime.now()
+            )
+            db.add(latest_stats)
+        
+        # Increment malicious requests
+        latest_stats.malicious_requests += 1
+        latest_stats.total_requests += 1
+        
+        db.commit()
+        
+        return {
+            "status": "success",
+            "message": "Test attack simulated",
+            "attack": {
+                "type": "DDoS",
+                "source_ip": "192.168.1.100",
+                "target": "/api/admin",
+                "severity": "high",
+                "action": "blocked"
+            }
+        }
+    except Exception as e:
+        logger.error(f"Error simulating attack: {e}")
+        db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
 
 # Add this at the bottom of the file
