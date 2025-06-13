@@ -1,7 +1,8 @@
 from sqlalchemy import Column, Integer, String, DateTime, JSON, ForeignKey, Boolean, Float
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
-from ..database import Base
+from .base import Base
+from ..schemas import SecurityEventCreate
 
 class SecurityEvent(Base):
     """Database model for security events."""
@@ -9,12 +10,15 @@ class SecurityEvent(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     timestamp = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
-    event_type = Column(String(50), nullable=False)  # attack, alert, block, etc.
+    event_type = Column(String(50), nullable=False, index=True)
     source_ip = Column(String(45), nullable=False)  # IPv6 addresses can be up to 45 chars
-    severity = Column(String(20), default="medium")  # low, medium, high, critical
+    severity = Column(String(20), nullable=False)
+    target = Column(String(45), nullable=False)
     description = Column(String(255))
-    status = Column(String(20), default="detected")  # detected, investigating, mitigated, resolved
-    details = Column(JSON)
+    status = Column(String(20), nullable=False, default="detected")  # detected, investigating, mitigated, resolved
+    details = Column(JSON, nullable=True)
+    action_taken = Column(String(255), nullable=True)
+    confidence_score = Column(Float, nullable=True)
     
     # Mitigation information
     is_mitigated = Column(Boolean, default=False)
@@ -32,7 +36,6 @@ class SecurityEvent(Base):
     
     # Relationships
     server = relationship("Server", back_populates="security_events")
-    attack_logs = relationship("AttackLog", back_populates="security_event")
 
     def __repr__(self):
         return f"<SecurityEvent(id={self.id}, event_type='{self.event_type}', source_ip='{self.source_ip}', severity='{self.severity}')>" 

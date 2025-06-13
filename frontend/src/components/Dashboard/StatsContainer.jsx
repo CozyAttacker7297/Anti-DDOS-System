@@ -51,15 +51,11 @@ const StatsContainer = () => {
       const response = await axios.get('http://localhost:5000/api/dashboard/stats');
       console.log('Received stats:', response.data);
       
-      // Update all stats except uptime
-      const updatedStats = stats.map((stat, index) => {
-        if (stat.title === 'UPTIME') {
-          return stat; // Keep uptime as is, we'll update it separately
-        }
-        return response.data[index];
-      });
-      
-      setStats(updatedStats);
+      if (Array.isArray(response.data)) {
+        setStats(response.data);
+      } else {
+        console.error('Invalid stats data format:', response.data);
+      }
     } catch (error) {
       console.error('Error fetching stats:', error);
     }

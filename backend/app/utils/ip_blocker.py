@@ -4,7 +4,7 @@ from typing import List, Dict, Optional
 from datetime import datetime
 from sqlalchemy.orm import Session
 from ..models.blocked_ip import BlockedIP
-from ..schemas.security import SecurityEventCreate
+from ..schemas import SecurityEventCreate
 from ..crud import create_security_event
 
 logger = logging.getLogger(__name__)

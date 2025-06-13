@@ -11,30 +11,25 @@ from urllib3.util.retry import Retry
 TARGET_URL = "http://localhost:5000"
 NORMAL_ENDPOINTS = ["/api/test-connection", "/api/server-health"]
 ATTACK_ENDPOINTS = [
-    "/api/login",
-    "/api/admin",
-    "/api/user/data",
-    "/api/dashboard/users",
-    "/api/dashboard/logs",
-    "/api/dashboard/config",
-    "/api/dashboard/settings",
-    "/api/predict-attack"
+    "/api/test-connection",
+    "/api/server-health",
+    "/api/predict-attack"  # if implemented
 ]
 
 # Attack Configuration - RESOURCE OPTIMIZED MODE
-TOTAL_REQUESTS = 1000000  # 1 MILLION requests
-THREADS = 100  # Reduced threads to prevent file descriptor exhaustion
-CLEAN_TRAFFIC_RATIO = 0.001  # Only 0.1% clean traffic, 99.9% malicious
-REQUEST_DELAY = 0.001  # Increased delay for stability
-BATCH_SIZE = 100  # Reduced batch size
-FLOOD_REQUESTS_PER_ATTACK = 10  # Reduced flood requests per attack
+TOTAL_REQUESTS = 50  # Reduced to 50 requests for testing
+THREADS = 5  # Reduced threads for testing
+CLEAN_TRAFFIC_RATIO = 0.3  # 30% clean traffic, 70% malicious
+REQUEST_DELAY = 0.2  # Increased delay for better visibility
+BATCH_SIZE = 5  # Reduced batch size
+FLOOD_REQUESTS_PER_ATTACK = 3  # Reduced flood requests per attack
 
 # Attack type distribution - Optimized
 ATTACK_TYPES = {
-    "flood": 0.95,  # 95% flood attacks
-    "injection": 0.03,  # 3% SQL injection
-    "scan": 0.01,  # 1% port scanning
-    "brute_force": 0.01  # 1% brute force
+    "flood": 0.8,  # 80% flood attacks
+    "injection": 0.1,  # 10% SQL injection
+    "scan": 0.05,  # 5% port scanning
+    "brute_force": 0.05  # 5% brute force
 }
 
 # Advanced User-Agent rotation to avoid detection
@@ -125,17 +120,16 @@ SQL_INJECTION_PAYLOADS = [
 def create_session():
     session = requests.Session()
     retry_strategy = Retry(
-        total=2,  # Reduced retries
-        backoff_factor=0.1,
+        total=3,  # Increased retries
+        backoff_factor=0.2,  # Increased backoff
         status_forcelist=[500, 502, 503, 504, 429],
         allowed_methods=["GET", "POST"]
     )
     adapter = HTTPAdapter(
         max_retries=retry_strategy,
-        pool_connections=20,  # Reduced connection pool
-        pool_maxsize=20,
-        pool_block=True,
-        max_retries=2
+        pool_connections=10,  # Reduced connection pool
+        pool_maxsize=10,
+        pool_block=True
     )
     session.mount("http://", adapter)
     session.mount("https://", adapter)
@@ -202,38 +196,22 @@ def get_random_headers(fake_ip, attack_type):
     return headers
 
 def send_clean_traffic(session):
-    try:
-        endpoint = random.choice(NORMAL_ENDPOINTS)
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-            "Accept": "application/json",
-            "Accept-Language": "en-US,en;q=0.9",
-            "Connection": "keep-alive"
-        }
-        response = session.get(f"{TARGET_URL}{endpoint}", headers=headers, timeout=5)
-        print(f"✅ Clean Request: {endpoint} - Status: {response.status_code}")
-    except Exception as e:
-        print(f"❌ Clean Traffic Error: {str(e)}")
+    for endpoint in NORMAL_ENDPOINTS:
+        headers = get_random_headers("127.0.0.1", "clean")
+        send_request(session, "GET", f"{TARGET_URL}{endpoint}", headers)  # Changed from POST to GET
 
-def send_request(session, method, url, headers, data=None, timeout=1):  # Reduced timeout
+def send_request(session, method, url, headers, data=None, timeout=3):  # Increased timeout
     try:
-        if method == "GET":
-            response = session.get(url, headers=headers, timeout=timeout)
-        else:
-            response = session.post(url, headers=headers, json=data, timeout=timeout)
+        response = session.request(
+            method,
+            url,
+            headers=headers,
+            json=data if data else None,
+            timeout=timeout
+        )
+        print(f"✅ {method} Request: {url} - Status: {response.status_code}")
         return response
-    except requests.exceptions.Timeout:
-        print("⚠️ Request timeout - retrying with longer timeout")
-        try:
-            if method == "GET":
-                response = session.get(url, headers=headers, timeout=timeout*2)
-            else:
-                response = session.post(url, headers=headers, json=data, timeout=timeout*2)
-            return response
-        except Exception as e:
-            print(f"❌ Retry failed: {str(e)}")
-            return None
-    except Exception as e:
+    except requests.exceptions.RequestException as e:
         print(f"❌ Request error: {str(e)}")
         return None
 

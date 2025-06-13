@@ -11,6 +11,9 @@ class AttackLog(Base):
     timestamp = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     source_ip = Column(String(45), nullable=False)  # IPv6 addresses can be up to 45 chars
     attack_type = Column(String(50), nullable=False)
+    target = Column(String(255), nullable=True)  # Added target field
+    severity = Column(String(20), default="medium")  # Added severity field
+    action = Column(String(20), default="detected")  # Added action field
     status = Column(String(20), default="detected")  # detected, mitigated, resolved
     description = Column(String(255))
     details = Column(JSON)
@@ -28,11 +31,9 @@ class AttackLog(Base):
     
     # Foreign keys
     server_id = Column(Integer, ForeignKey("servers.id"), nullable=True)
-    security_event_id = Column(Integer, ForeignKey("security_events.id"), nullable=True)
     
     # Relationships
     server = relationship("Server", back_populates="attack_logs")
-    security_event = relationship("SecurityEvent", back_populates="attack_logs")
 
     def __repr__(self):
         return f"<AttackLog(id={self.id}, attack_type='{self.attack_type}', source_ip='{self.source_ip}', status='{self.status}')>" 

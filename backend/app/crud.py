@@ -1,101 +1,101 @@
 from sqlalchemy.orm import Session
-from . import models, schemas
-from .models.attack_log import AttackLog
+from . import models
+from .schemas import (
+    ServerCreate,
+    SecurityEventCreate,
+    AttackLogCreate,
+    ServerHealthCreate,
+    ServerStatsCreate,
+    TrafficStatsCreate
+)
+from typing import List, Optional
+from datetime import datetime, timedelta
 
-def get_servers(db: Session):
-    return db.query(models.Server).filter(models.Server.is_active == True).all()
+# Server CRUD operations
+def get_server(db: Session, server_id: int):
+    return db.query(models.Server).filter(models.Server.id == server_id).first()
 
-def create_server(db: Session, server: schemas.ServerBase):
+def get_servers(db: Session, skip: int = 0, limit: int = 100):
+    return db.query(models.Server).offset(skip).limit(limit).all()
+
+def create_server(db: Session, server: ServerCreate):
     db_server = models.Server(**server.dict())
     db.add(db_server)
     db.commit()
     db.refresh(db_server)
     return db_server
 
+def update_server(db: Session, server_id: int, server: ServerCreate):
+    db_server = db.query(models.Server).filter(models.Server.id == server_id).first()
+    if db_server:
+        for key, value in server.dict().items():
+            setattr(db_server, key, value)
+        db.commit()
+        db.refresh(db_server)
+    return db_server
+
 def delete_server(db: Session, server_id: int):
-    server = db.query(models.Server).filter(models.Server.id == server_id).first()
-    if server:
-        db.delete(server)
+    db_server = db.query(models.Server).filter(models.Server.id == server_id).first()
+    if db_server:
+        db.delete(db_server)
         db.commit()
-    return server
+    return db_server
 
-def get_alerts(db: Session, skip: int = 0, limit: int = 10):
-    return db.query(models.Alert).offset(skip).limit(limit).all()
-
-def create_alert(db: Session, alert: schemas.AlertCreate):
-    db_alert = models.Alert(**alert.dict())
-    db.add(db_alert)
-    db.commit()
-    db.refresh(db_alert)
-    return db_alert
-
-def delete_alert(db: Session, alert_id: int):
-    alert = db.query(models.Alert).filter(models.Alert.id == alert_id).first()
-    if alert:
-        db.delete(alert)
-        db.commit()
-    return alert
-
-def get_blocked_ips(db: Session):
-    return db.query(models.BlockedIP).all()
-
-def create_blocked_ip(db: Session, blocked_ip: schemas.BlockedIPCreate):
-    db_blocked_ip = models.BlockedIP(**blocked_ip.dict())
-    db.add(db_blocked_ip)
-    db.commit()
-    db.refresh(db_blocked_ip)
-    return db_blocked_ip
-
-def delete_blocked_ip(db: Session, ip_id: int):
-    blocked_ip = db.query(models.BlockedIP).filter(models.BlockedIP.id == ip_id).first()
-    if blocked_ip:
-        db.delete(blocked_ip)
-        db.commit()
-    return blocked_ip
-
-def get_attack_logs(db: Session, skip: int = 0, limit: int = 10):
-    return db.query(models.AttackLog).offset(skip).limit(limit).all()
-
-def create_attack_log(db: Session, attack_log: schemas.AttackLogCreate):
-    db_attack_log = models.AttackLog(**attack_log.dict())
-    db.add(db_attack_log)
-    db.commit()
-    db.refresh(db_attack_log)
-    return db_attack_log
-
-def delete_attack_log(db: Session, attack_log_id: int):
-    attack_log = db.query(models.AttackLog).filter(models.AttackLog.id == attack_log_id).first()
-    if attack_log:
-        db.delete(attack_log)
-        db.commit()
-    return attack_log
-
-def get_security_events(db: Session, skip: int = 0, limit: int = 10):
+# Security Event CRUD operations
+def get_security_events(db: Session, skip: int = 0, limit: int = 100):
     return db.query(models.SecurityEvent).offset(skip).limit(limit).all()
 
-def create_security_event(db: Session, event: schemas.SecurityEventCreate):
+def create_security_event(db: Session, event: SecurityEventCreate):
     db_event = models.SecurityEvent(**event.dict())
     db.add(db_event)
     db.commit()
     db.refresh(db_event)
     return db_event
 
-def get_security_event(db: Session, event_id: int):
-    return db.query(models.SecurityEvent).filter(models.SecurityEvent.id == event_id).first()
+# Attack Log CRUD operations
+def get_attack_logs(db: Session, skip: int = 0, limit: int = 100):
+    return db.query(models.AttackLog).offset(skip).limit(limit).all()
 
-def update_security_event(db: Session, event_id: int, event: schemas.SecurityEventUpdate):
-    db_event = db.query(models.SecurityEvent).filter(models.SecurityEvent.id == event_id).first()
-    if db_event:
-        update_data = event.dict(exclude_unset=True)
-        for key, value in update_data.items():
-            setattr(db_event, key, value)
-        db.commit()
-        db.refresh(db_event)
-    return db_event
+def create_attack_log(db: Session, log: AttackLogCreate):
+    db_log = models.AttackLog(**log.dict())
+    db.add(db_log)
+    db.commit()
+    db.refresh(db_log)
+    return db_log
 
-def delete_security_event(db: Session, event_id: int):
-    event = db.query(models.SecurityEvent).filter(models.SecurityEvent.id == event_id).first()
-    if event:
-        db.delete(event)
-        db.commit()
-    return event
+# Server Health CRUD operations
+def get_server_health(db: Session, server_id: int, skip: int = 0, limit: int = 100):
+    return db.query(models.ServerHealth).filter(
+        models.ServerHealth.server_id == server_id
+    ).offset(skip).limit(limit).all()
+
+def create_server_health(db: Session, health: ServerHealthCreate, server_id: int):
+    db_health = models.ServerHealth(**health.dict(), server_id=server_id)
+    db.add(db_health)
+    db.commit()
+    db.refresh(db_health)
+    return db_health
+
+# Server Stats CRUD operations
+def get_server_stats(db: Session, server_id: int, skip: int = 0, limit: int = 100):
+    return db.query(models.ServerStats).filter(
+        models.ServerStats.server_id == server_id
+    ).offset(skip).limit(limit).all()
+
+def create_server_stats(db: Session, stats: ServerStatsCreate, server_id: int):
+    db_stats = models.ServerStats(**stats.dict(), server_id=server_id)
+    db.add(db_stats)
+    db.commit()
+    db.refresh(db_stats)
+    return db_stats
+
+# Traffic Stats CRUD operations
+def get_traffic_stats(db: Session, skip: int = 0, limit: int = 100):
+    return db.query(models.TrafficStats).offset(skip).limit(limit).all()
+
+def create_traffic_stats(db: Session, stats: TrafficStatsCreate):
+    db_stats = models.TrafficStats(**stats.dict())
+    db.add(db_stats)
+    db.commit()
+    db.refresh(db_stats)
+    return db_stats

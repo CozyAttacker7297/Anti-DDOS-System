@@ -2,7 +2,11 @@ from sqlalchemy import Column, Integer, String, Boolean, DateTime, Float, Foreig
 from sqlalchemy.dialects.postgresql import INET
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
-from ..database import Base
+from .base import Base
+from .security_event import SecurityEvent
+from .attack_log import AttackLog
+from .server_health import ServerHealth
+from .server_stats import ServerStats
 
 class Server(Base):
     """Database model for servers."""
@@ -55,45 +59,4 @@ class Server(Base):
     security_events = relationship("SecurityEvent", back_populates="server")
 
     def __repr__(self):
-        return f"<Server(id={self.id}, name='{self.name}', ip='{self.ip_address}', status='{self.status}')>"
-
-class ServerHealth(Base):
-    """Database model for server health checks."""
-    __tablename__ = "server_health"
-
-    id = Column(Integer, primary_key=True, index=True)
-    server_id = Column(Integer, ForeignKey("servers.id"), nullable=False)
-    status = Column(String, nullable=False)
-    cpu_usage = Column(Float, nullable=False)
-    memory_usage = Column(Float, nullable=False)
-    disk_usage = Column(Float, nullable=False)
-    uptime_seconds = Column(Float, nullable=False)
-    is_responding = Column(Boolean, default=True)
-    response_time_ms = Column(Float, nullable=True)
-    error_message = Column(String, nullable=True)
-    checked_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
-
-    # Relationship
-    server = relationship("Server", back_populates="health_checks")
-
-    def __repr__(self):
-        return f"<ServerHealth(server_id={self.server_id}, status='{self.status}', checked_at='{self.checked_at}')>"
-
-class ServerStats(Base):
-    """Database model for server statistics."""
-    __tablename__ = "server_stats"
-
-    id = Column(Integer, primary_key=True, index=True)
-    server_id = Column(Integer, ForeignKey("servers.id"), nullable=False)
-    total_requests = Column(Integer, default=0)
-    active_connections = Column(Integer, default=0)
-    requests_per_second = Column(Float, default=0.0)
-    error_rate = Column(Float, default=0.0)
-    bandwidth_usage = Column(JSON, nullable=False)  # bytes_sent, bytes_received
-    recorded_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
-
-    # Relationship
-    server = relationship("Server", back_populates="stats")
-
-    def __repr__(self):
-        return f"<ServerStats(server_id={self.server_id}, requests_per_second={self.requests_per_second}, recorded_at='{self.recorded_at}')>" 
+        return f"<Server(id={self.id}, name='{self.name}', ip='{self.ip_address}', status='{self.status}')>" 

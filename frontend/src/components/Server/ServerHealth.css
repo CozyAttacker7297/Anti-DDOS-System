@@ -43,6 +43,95 @@
 }
 
 .server-health {
+    padding: 20px;
+    background: #fff;
+    border-radius: 8px;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.server-health h2 {
+    margin-bottom: 20px;
+    color: #333;
+}
+
+.server-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 20px;
+}
+
+.server-card {
+    background: #fff;
+    border-radius: 8px;
+    padding: 20px;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    border-left: 4px solid #ddd;
+}
+
+.server-card.healthy {
+    border-left-color: #28a745;
+}
+
+.server-card.warning {
+    border-left-color: #ffc107;
+}
+
+.server-card.critical {
+    border-left-color: #dc3545;
+}
+
+.server-card h3 {
+    margin: 0 0 15px 0;
+    color: #333;
+}
+
+.server-details p {
+    margin: 8px 0;
+    color: #666;
+}
+
+.server-details strong {
+    color: #333;
+}
+
+.loading {
+    text-align: center;
+    padding: 20px;
+    color: #666;
+}
+
+.error {
+    background-color: #fff3f3;
+    border: 1px solid #ffcdd2;
+    border-radius: 4px;
+    padding: 15px;
+    margin: 10px 0;
+    color: #d32f2f;
+}
+
+.error p {
+    margin: 0 0 10px 0;
+}
+
+.btn {
+    padding: 8px 16px;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 0.9rem;
+    transition: background-color 0.2s;
+}
+
+.btn-primary {
+    background-color: #007bff;
+    color: white;
+}
+
+.btn-primary:hover {
+    background-color: #0056b3;
+}
+
+.server-health {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
     gap: 24px;

@@ -7,15 +7,14 @@ from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 from .models.base import Base
-from .models.alert import Alert
+from .models.traffic_stats import TrafficStats
 from .database import SessionLocal, engine, get_db, init_db
-from .schemas import AlertCreate, AlertResponse  # Import alert schemas
+from .routers import dashboard, load_balancer, server_health
 import psutil
 import os
 from dotenv import load_dotenv
 import time
 import logging
-import datetime
 from typing import List, Dict
 import uvicorn
 from pydantic import BaseModel
@@ -24,8 +23,8 @@ from sqlalchemy import func
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
-from .routers.load_balancer import router as load_balancer_router
 from .models.attack_log import AttackLog
+from datetime import datetime
 
 # Load environment variables
 load_dotenv()
@@ -60,8 +59,19 @@ app = FastAPI(
     version="1.0.0"
 )
 
-# Include router for load balancer endpoints
-app.include_router(load_balancer_router)
+# Add CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000"],  # Frontend URL
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Include routers
+app.include_router(dashboard.router, prefix="/api")
+app.include_router(load_balancer.router, prefix="/api")
+app.include_router(server_health.router, prefix="/api")
 
 # Initialize request tracking
 request_counts = {}  # Track request counts per IP
@@ -115,7 +125,7 @@ async def health_check():
     """Health check endpoint for the application."""
     return {
         "status": "healthy",
-        "timestamp": datetime.datetime.now().isoformat(),
+        "timestamp": datetime.now().isoformat(),
         "version": "1.0.0"
     }
 
@@ -157,24 +167,6 @@ async def get_server_health():
     ram = psutil.virtual_memory().percent
     return {"cpu": cpu, "ram": ram}
 
-async def get_new_alert():
-    db: Session = SessionLocal()
-    alert = db.query(Alert).order_by(Alert.created_at.desc()).first()
-    db.close()
-    if alert:
-        return {
-            "id": alert.id,
-            "title": alert.title,
-            "description": alert.description,
-            "alert_type": alert.alert_type,
-            "severity": alert.severity,
-            "status": alert.status,
-            "created_at": alert.created_at.isoformat(),
-            "source": alert.source,
-            "details": alert.details
-        }
-    return {"message": "No alerts found"}
-
 async def get_recent_attack_logs():
     db: Session = SessionLocal()
     attack_logs = db.query(AttackLog).order_by(AttackLog.timestamp.desc()).limit(5).all()
@@ -195,113 +187,36 @@ async def get_recent_attack_logs():
 # Route to fetch attack logs via HTTP request
 @app.get("/api/get-attack-logs")
 async def get_attack_logs(db: Session = Depends(get_db)):
-    logs = db.query(AttackLog).order_by(AttackLog.timestamp.desc()).all()
-    return [
-        {
-            "timestamp": log.timestamp,
-            "type": log.attack_type,
-            "source_ip": log.source_ip,
-            "target": log.target,
-            "severity": log.severity,
-            "action": log.action
-        }
-        for log in logs
-    ]
-
-# Route to add a new alert into the database
-@app.post("/add_alert/")
-async def add_alert(alert: AlertCreate, db: Session = Depends(get_db)):
-    """Add a new alert and broadcast it to all connected clients."""
+    """Get recent attack logs."""
     try:
-        # Create alert in database
-        db_alert = Alert(
-            title=alert.title,
-            description=alert.description,
-            alert_type=alert.alert_type,
-            severity=alert.severity,
-            source=alert.source,
-            details=alert.details,
-            status="new"
-        )
-        db.add(db_alert)
-        db.commit()
-        db.refresh(db_alert)
-
-        # Broadcast alert to all connected clients
-        await broadcast_new_alert(db_alert)
-
-        return AlertResponse(
-            id=db_alert.id,
-            title=db_alert.title,
-            description=db_alert.description,
-            alert_type=db_alert.alert_type,
-            severity=db_alert.severity,
-            status=db_alert.status,
-            created_at=db_alert.created_at,
-            source=db_alert.source,
-            details=db_alert.details
-        )
+        # Get the last 50 attack logs, ordered by most recent
+        logs = db.query(AttackLog).order_by(AttackLog.timestamp.desc()).limit(50).all()
+        
+        return [
+            {
+                "timestamp": log.timestamp,
+                "type": log.attack_type,
+                "source_ip": log.source_ip,
+                "target": log.target if hasattr(log, 'target') else "Unknown",
+                "severity": log.severity if hasattr(log, 'severity') else "medium",
+                "action": log.action if hasattr(log, 'action') else "detected"
+            }
+            for log in logs
+        ]
     except Exception as e:
-        logger.error(f"Error creating alert: {e}")
-        db.rollback()
-        raise HTTPException(status_code=500, detail="Error creating alert")
+        logger.error(f"Error getting attack logs: {str(e)}")
+        raise HTTPException(status_code=500, detail="Error retrieving attack logs")
 
-# Function to broadcast the new alert to all WebSocket clients
-async def broadcast_new_alert(alert: Alert):
-    """Broadcast a new alert to all connected WebSocket clients."""
-    if not connected_clients:
-        logger.info("No connected clients to broadcast alert to")
-        return
-
-    alert_data = {
-        "id": alert.id,
-        "title": alert.title,
-        "description": alert.description,
-        "alert_type": alert.alert_type,
-        "severity": alert.severity,
-        "status": alert.status,
-        "created_at": alert.created_at.isoformat(),
-        "source": alert.source,
-        "details": alert.details
-    }
-
-    disconnected_clients = []
-    for client in connected_clients:
-        try:
-            await client.send_json({
-                "type": "alert",
-                "data": alert_data
-            })
-            logger.info(f"Alert broadcasted to client: {id(client)}")
-        except WebSocketDisconnect:
-            disconnected_clients.append(client)
-            logger.info(f"Client disconnected during broadcast: {id(client)}")
-        except Exception as e:
-            logger.error(f"Error broadcasting alert to client {id(client)}: {e}")
-            disconnected_clients.append(client)
-
-    # Clean up disconnected clients
-    for client in disconnected_clients:
-        if client in connected_clients:
-            connected_clients.remove(client)
-            logger.info(f"Removed disconnected client: {id(client)}")
-
-# Route to fetch current server health (CPU/RAM)
 @app.get("/api/server-health")
 async def server_health():
-    health_data = await get_server_health()
-    return health_data
+    """Get server health metrics."""
+    return await get_server_health()
 
-# Test connection to verify that the backend is connected
 @app.get("/api/test-connection")
 async def test_connection():
-    return {
-        "status": "success",
-        "message": "Backend is connected!",
-        "timestamp": time.time()
-    }
+    """Test endpoint to verify API connectivity."""
+    return {"status": "connected", "message": "API is reachable"}
 
-# Function to update traffic stats in database asynchronously
 async def update_traffic_stats_db(db: Session, is_malicious: bool):
     """Update traffic statistics in the database."""
     try:
@@ -317,7 +232,8 @@ async def update_traffic_stats_db(db: Session, is_malicious: bool):
                 requests_per_second=0.0,
                 bandwidth_usage={"bytes_sent": 0, "bytes_received": 0},
                 active_connections=0,
-                error_rate=0.0
+                error_rate=0.0,
+                timestamp=datetime.now()
             )
             db.add(latest_stats)
         
@@ -326,185 +242,178 @@ async def update_traffic_stats_db(db: Session, is_malicious: bool):
             latest_stats.malicious_requests += 1
         else:
             latest_stats.clean_requests += 1
-        
         latest_stats.total_requests = latest_stats.clean_requests + latest_stats.malicious_requests
         
         # Calculate requests per second (simple moving average)
-        time_diff = datetime.datetime.utcnow() - latest_stats.timestamp
-        if time_diff.total_seconds() > 0:
-            latest_stats.requests_per_second = latest_stats.total_requests / time_diff.total_seconds()
+        current_time = datetime.now()
+        if latest_stats.timestamp:
+            time_diff = current_time - latest_stats.timestamp
+            if time_diff.total_seconds() > 0:
+                latest_stats.requests_per_second = latest_stats.total_requests / time_diff.total_seconds()
+        
+        # Update timestamp
+        latest_stats.timestamp = current_time
         
         db.commit()
         return latest_stats
     except Exception as e:
-        logger.error(f"Error updating traffic stats in database: {e}")
+        logger.error(f"Error updating traffic stats: {e}")
         db.rollback()
         return None
 
 def cleanup_request_counts():
+    """Clean up old request counts periodically."""
     current_time = time.time()
-    stale_keys = [k for k, v in request_counts.items() if (current_time - v["last_request"]) > 30]
-    for k in stale_keys:
-        del request_counts[k]
+    for ip in list(request_counts.keys()):
+        if current_time - request_counts[ip]["last_request"] > 3600:  # 1 hour
+            del request_counts[ip]
 
 @app.middleware("http")
 async def track_traffic_middleware(request: Request, call_next):
+    """Middleware to track and analyze traffic patterns."""
     start_time = time.time()
-    client_host = request.client.host if request.client else "unknown"
+    client_ip = request.client.host
     
-    # Cleanup old request counts
-    cleanup_request_counts()
+    # Initialize or update request count for this IP
+    if client_ip not in request_counts:
+        request_counts[client_ip] = {
+            "count": 0,
+            "last_request": start_time,
+            "first_request": start_time
+        }
     
-    # Read request body once
-    body_content = await request.body()
+    request_counts[client_ip]["count"] += 1
+    request_counts[client_ip]["last_request"] = start_time
     
-    # Check for malicious indicators
+    # Get request details
+    request_size = len(await request.body())
+    user_agent = request.headers.get("user-agent", "Unknown")
+    
+    # Basic rate limiting check
+    if request_counts[client_ip]["count"] > 1000:  # More than 1000 requests per hour
+        logger.warning(f"Rate limit exceeded for IP: {client_ip}")
+        return JSONResponse(
+            status_code=429,
+            content={"detail": "Rate limit exceeded"}
+        )
+    
+    # Check for suspicious patterns
     is_malicious = False
-    attack_type = None
-    
-    # Get headers and body as strings for checking
-    headers_str = str(request.headers)
-    body_str = body_content.decode() if body_content else ""
-    
-    # Check user agent
-    user_agent = request.headers.get("user-agent", "").lower()
-    if any(bot in user_agent for bot in ["botnet", "sql", "scan", "injection", "bruteforce"]):
+    if request_counts[client_ip]["count"] > 100:  # More than 100 requests per hour
         is_malicious = True
-        attack_type = "bot"
+        logger.warning(f"Suspicious activity detected from IP: {client_ip}")
     
-    # Check attack type headers
-    if request.headers.get("x-attack-type"):
-        is_malicious = True
-        attack_type = request.headers.get("x-attack-type")
-    
-    # Check content type for SQL injection
-    if "application/x-www-form-urlencoded" in request.headers.get("content-type", ""):
-        if any(inj in body_str.lower() for inj in ["'or'1'='1", "union select", "drop table"]):
-            is_malicious = True
-            attack_type = "injection"
-    
-    # Check for suspicious paths
-    if any(path in request.url.path for path in ["/admin", "/config", "/settings"]):
-        if "bot" in user_agent:
-            is_malicious = True
-            attack_type = "scan"
-    
-    # Check rate limit
-    current_time = time.time()
-    if client_host in request_counts:
-        if current_time - request_counts[client_host]["last_request"] < 0.1:  # 100ms threshold
-            request_counts[client_host]["count"] += 1
-            if request_counts[client_host]["count"] > 10:  # More than 10 requests per 100ms
-                is_malicious = True
-                attack_type = "flood"
-        else:
-            request_counts[client_host] = {"count": 1, "last_request": current_time}
+    # Update traffic stats
+    if is_malicious:
+        traffic_stats["malicious_requests"] += 1
     else:
-        request_counts[client_host] = {"count": 1, "last_request": current_time}
+        traffic_stats["clean_requests"] += 1
+    traffic_stats["last_update"] = start_time
     
-    # Update traffic stats in database
-    db = next(get_db())
-    try:
-        stats = await update_traffic_stats_db(db, is_malicious)
-        
-        # If malicious, save to attack logs
-        if is_malicious:
-            attack_log = AttackLog(
-                timestamp=datetime.datetime.utcnow(),
-                source_ip=client_host,
-                attack_type=attack_type or "unknown",
-                target=request.url.path,
-                severity="high",
-                action="blocked",
-                headers=dict(request.headers),
-                body=body_str
-            )
-            db.add(attack_log)
-            db.commit()
-            
-            logger.warning(f"Potential attack detected from {client_host}")
-    except Exception as e:
-        db.rollback()
-        logger.error(f"Error saving attack log: {str(e)}")
-    finally:
-        db.close()
+    # Update database in background
+    db = SessionLocal()
+    asyncio.create_task(update_traffic_stats_db(db, is_malicious))
     
     # Process the request
     response = await call_next(request)
     
-    # Calculate request duration
-    duration = time.time() - start_time
-    
-    # Log the request
-    logger.info(f"Request: {request.method} {request.url.path} - Duration: {duration:.3f}s")
+    # Add security headers
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["X-XSS-Protection"] = "1; mode=block"
     
     return response
 
-# Error handling middleware for catching exceptions
 @app.middleware("http")
 async def error_handling_middleware(request: Request, call_next):
+    """Middleware to handle errors and provide consistent error responses."""
     try:
         return await call_next(request)
     except Exception as e:
-        logger.error(f"Unhandled error: {str(e)}", exc_info=True)
+        logger.error(f"Unhandled error: {str(e)}")
         return JSONResponse(
             status_code=500,
             content={"detail": "Internal server error"}
         )
-    
+
 @app.websocket("/ws/stats")
 async def websocket_stats(websocket: WebSocket):
+    """WebSocket endpoint for real-time traffic statistics."""
+    await websocket.accept()
     try:
-        await websocket.accept()
-        logger.info("WebSocket connection established")
-
+        connected_clients.append(websocket)
         while True:
-            message = await websocket.receive_text()
-            if message == "get_stats":
-                stats_data = await get_stats_data()
-                await websocket.send_json(stats_data)
-            else:
-                await websocket.send_text(f"Unknown command: {message}")
+            try:
+                message = await websocket.receive_text()
+                if message == "get_stats":
+                    stats = await get_stats_data()
+                    await websocket.send_json(stats)
+            except WebSocketDisconnect:
+                break
+            except Exception as e:
+                logger.error(f"Error in WebSocket stats: {e}")
+                await websocket.send_json({"error": "Internal server error"})
     except Exception as e:
-        logger.error(f"Error in WebSocket: {str(e)}")
+        logger.error(f"WebSocket connection error: {e}")
     finally:
-        logger.info("WebSocket connection closed")
-        await websocket.close()
+        if websocket in connected_clients:
+            connected_clients.remove(websocket)
 
-
-
-# Function to generate stats (this can be dynamic based on DB, etc.)
 async def get_stats_data():
-    return [
-        {
-            "title": "ATTACKS BLOCKED",
-            "value": "0",
-            "change": "12% from yesterday",
-            "type": "danger",
-            "isPositive": False
-        },
-        {
-            "title": "MALICIOUS REQUESTS",
-            "value": "5,732",
-            "change": "8% from yesterday",
-            "type": "warning",
-            "isPositive": True
-        },
-        {
-            "title": "CLEAN TRAFFIC",
-            "value": "2.1M",
-            "change": "3% from yesterday",
-            "type": "success",
-            "isPositive": True
-        },
-        {
-            "title": "UPTIME",
-            "value": "99.98%",
-            "change": "All systems normal",
-            "type": "info",
-            "isPositive": True
+    """Get current traffic statistics."""
+    try:
+        # Get database session
+        db = SessionLocal()
+        
+        # Get traffic stats from database
+        recent_stats = db.query(TrafficStats).order_by(
+            TrafficStats.timestamp.desc()
+        ).limit(100).all()
+        
+        # Calculate statistics
+        total_requests = len(recent_stats)
+        malicious_requests = sum(1 for stat in recent_stats if stat.is_malicious)
+        clean_requests = total_requests - malicious_requests
+        
+        # Get attack logs
+        attack_logs = db.query(AttackLog).order_by(
+            AttackLog.timestamp.desc()
+        ).limit(10).all()
+        
+        # Format attack logs
+        formatted_logs = [
+            {
+                "timestamp": log.timestamp.isoformat(),
+                "type": log.attack_type,
+                "source_ip": log.source_ip,
+                "target": log.target if hasattr(log, 'target') else "Unknown",
+                "severity": log.severity if hasattr(log, 'severity') else "medium",
+                "action": log.action if hasattr(log, 'action') else "detected"
+            }
+            for log in attack_logs
+        ]
+        
+        # Get server health
+        health = await get_server_health()
+        
+        return {
+            "traffic_stats": {
+                "total_requests": total_requests,
+                "malicious_requests": malicious_requests,
+                "clean_requests": clean_requests,
+                "last_update": datetime.now().isoformat()
+            },
+            "attack_logs": formatted_logs,
+            "server_health": health
         }
-    ]
+    except Exception as e:
+        logger.error(f"Error getting stats data: {e}")
+        return {
+            "error": "Failed to get statistics",
+            "details": str(e)
+        }
+    finally:
+        db.close()
 
 class AttackPrediction(BaseModel):
     source_ip: str
@@ -515,159 +424,156 @@ class AttackPrediction(BaseModel):
     user_agent: str
 
 @app.post("/api/predict-attack")
-async def predict_attack(attack_data: AttackPrediction):
+async def predict_attack(
+    request: Request,
+    db: Session = Depends(get_db)
+):
+    """Predict if a request is part of an attack."""
     try:
-        # Log the attack attempt
-        logger.warning(f"Potential attack detected from {attack_data.source_ip}")
+        # Get request details
+        client_ip = request.client.host
+        request_size = len(await request.body())
+        user_agent = request.headers.get("user-agent", "Unknown")
         
-        # Analyze the request
+        # Get request rate for this IP
+        if client_ip not in request_counts:
+            request_counts[client_ip] = {
+                "count": 0,
+                "last_request": time.time(),
+                "first_request": time.time()
+            }
+        
+        request_rate = request_counts[client_ip]["count"]
+        
+        # Create prediction input
+        prediction_input = AttackPrediction(
+            source_ip=client_ip,
+            target=request.url.path,
+            request_rate=request_rate,
+            payload_size=request_size,
+            request_type=request.method,
+            user_agent=user_agent
+        )
+        
+        # Basic attack detection logic
         is_attack = False
         attack_type = None
+        severity = "low"
         
-        # Check for flood attack
-        if attack_data.request_rate > 500:
+        # Check for suspicious patterns
+        if request_rate > 100:  # More than 100 requests per hour
             is_attack = True
-            attack_type = "flood"
-        
-        # Check for large payload
-        if attack_data.payload_size > 10000:
+            attack_type = "Rate Limit"
+            severity = "high"
+        elif request_size > 1000000:  # More than 1MB payload
             is_attack = True
-            attack_type = "payload"
+            attack_type = "Large Payload"
+            severity = "medium"
         
-        # Check for suspicious user agent
-        if "BotNet" in attack_data.user_agent:
-            is_attack = True
-            attack_type = "botnet"
-        
-        # Record the attack in the database
+        # Log the attack if detected
         if is_attack:
-            new_attack = AttackLog(
-                source_ip=attack_data.source_ip,
-                target=attack_data.target,
-                type=attack_type,
-                severity="high" if attack_data.request_rate > 1000 else "medium",
-                action="blocked"
+            attack_log = AttackLog(
+                timestamp=datetime.now(),
+                attack_type=attack_type,
+                source_ip=client_ip,
+                target=request.url.path,
+                severity=severity,
+                action="detected"
             )
-            db = SessionLocal()
-            db.add(new_attack)
+            db.add(attack_log)
             db.commit()
-            db.refresh(new_attack)
-            db.close()
-            
-            # Broadcast the attack via WebSocket
-            await broadcast_new_alert(new_attack)
         
         return {
             "is_attack": is_attack,
             "attack_type": attack_type,
-            "timestamp": time.time()
-        }
-        
-    except Exception as e:
-        logger.error(f"Error processing attack prediction: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-# Update the stats endpoint to include historical data
-@app.get("/api/dashboard/stats")
-async def get_stats(db: Session = Depends(get_db)):
-    """Get current traffic statistics."""
-    try:
-        # Get latest traffic stats
-        latest_stats = db.query(TrafficStats).order_by(TrafficStats.timestamp.desc()).first()
-        
-        if not latest_stats:
-            latest_stats = TrafficStats(
-                clean_requests=0,
-                malicious_requests=0,
-                total_requests=0,
-                requests_per_second=0.0,
-                bandwidth_usage={"bytes_sent": 0, "bytes_received": 0},
-                active_connections=0,
-                error_rate=0.0
-            )
-            db.add(latest_stats)
-            db.commit()
-        
-        # Get total attacks and latest attack timestamp
-        latest_attack = db.query(AttackLog).order_by(AttackLog.timestamp.desc()).first()
-        total_attacks = db.query(AttackLog).count()
-        
-        # Calculate uptime based on latest attack
-        uptime_seconds = 0
-        if latest_attack:
-            uptime_seconds = (datetime.datetime.utcnow() - latest_attack.timestamp).total_seconds()
-        
-        return {
-            "traffic_stats": {
-                "clean_requests": latest_stats.clean_requests,
-                "malicious_requests": latest_stats.malicious_requests,
-                "total_requests": latest_stats.total_requests,
-                "requests_per_second": latest_stats.requests_per_second,
-                "bandwidth_usage": latest_stats.bandwidth_usage,
-                "active_connections": latest_stats.active_connections,
-                "error_rate": latest_stats.error_rate
-            },
-            "attack_stats": {
-                "total_attacks": total_attacks,
-                "latest_attack": latest_attack.timestamp if latest_attack else None,
-                "uptime_seconds": uptime_seconds
+            "severity": severity,
+            "details": {
+                "source_ip": client_ip,
+                "request_rate": request_rate,
+                "payload_size": request_size,
+                "request_type": request.method
             }
         }
     except Exception as e:
-        logger.error(f"Error getting stats: {e}")
-        raise HTTPException(status_code=500, detail="Error retrieving statistics")
+        logger.error(f"Error predicting attack: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/dashboard/stats")
+async def get_stats():
+    """Get dashboard statistics."""
+    return await get_stats_data()
 
 @app.get("/api/dashboard/attack-stats")
 async def get_attack_stats(db: Session = Depends(get_db)):
+    """Get attack statistics for the dashboard."""
     try:
-        # Get attack counts by type for the last 24 hours
-        one_day_ago = datetime.datetime.utcnow() - datetime.timedelta(days=1)
+        # Get recent attack logs
+        recent_attacks = db.query(AttackLog).order_by(
+            AttackLog.timestamp.desc()
+        ).limit(100).all()
         
-        # Query attack logs grouped by type
-        attack_stats = db.query(
-            AttackLog.attack_type,
-            func.count(AttackLog.id).label('count')
-        ).filter(
-            AttackLog.timestamp >= one_day_ago
-        ).group_by(
-            AttackLog.attack_type
-        ).all()
+        # Calculate statistics
+        total_attacks = len(recent_attacks)
+        attack_types = defaultdict(int)
+        severity_counts = defaultdict(int)
         
-        # Create a dictionary of attack types with their counts
-        attack_counts = {
-            'SQLi': 0,
-            'XSS': 0,
-            'DDoS': 0,
-            'Brute Force': 0,
-            'Port Scan': 0,
-            'Malware': 0
-        }
+        for attack in recent_attacks:
+            attack_types[attack.attack_type] += 1
+            severity_counts[attack.severity] += 1
         
-        # Update counts from database
-        for attack_type, count in attack_stats:
-            # Map database attack types to our categories
-            if attack_type:
-                attack_type = attack_type.lower()
-                if 'sql' in attack_type:
-                    attack_counts['SQLi'] += count
-                elif 'xss' in attack_type:
-                    attack_counts['XSS'] += count
-                elif 'ddos' in attack_type or 'flood' in attack_type:
-                    attack_counts['DDoS'] += count
-                elif 'brute' in attack_type:
-                    attack_counts['Brute Force'] += count
-                elif 'port' in attack_type or 'scan' in attack_type:
-                    attack_counts['Port Scan'] += count
-                elif 'malware' in attack_type or 'botnet' in attack_type:
-                    attack_counts['Malware'] += count
+        # Get top attacking IPs
+        top_attackers = db.query(
+            AttackLog.source_ip,
+            func.count(AttackLog.id).label('attack_count')
+        ).group_by(AttackLog.source_ip).order_by(
+            func.count(AttackLog.id).desc()
+        ).limit(5).all()
         
         return {
-            'labels': list(attack_counts.keys()),
-            'data': list(attack_counts.values())
+            "total_attacks": total_attacks,
+            "attack_types": dict(attack_types),
+            "severity_distribution": dict(severity_counts),
+            "top_attackers": [
+                {"ip": ip, "count": count}
+                for ip, count in top_attackers
+            ],
+            "recent_attacks": [
+                {
+                    "timestamp": attack.timestamp.isoformat(),
+                    "type": attack.attack_type,
+                    "source_ip": attack.source_ip,
+                    "target": attack.target if hasattr(attack, 'target') else "Unknown",
+                    "severity": attack.severity if hasattr(attack, 'severity') else "medium",
+                    "action": attack.action if hasattr(attack, 'action') else "detected"
+                }
+                for attack in recent_attacks[:10]  # Last 10 attacks
+            ]
         }
     except Exception as e:
-        logger.error(f"Error getting attack stats: {str(e)}")
-        raise HTTPException(status_code=500, detail="Error retrieving attack statistics")
+        logger.error(f"Error getting attack stats: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/test-traffic")
+async def test_traffic(db: Session = Depends(get_db)):
+    """Test endpoint to generate traffic for testing."""
+    try:
+        # Create a test traffic stats record
+        stats = TrafficStats(
+            timestamp=datetime.now(),
+            is_malicious=False,
+            request_count=1
+        )
+        db.add(stats)
+        db.commit()
+        
+        return {
+            "status": "success",
+            "message": "Test traffic recorded",
+            "timestamp": datetime.now().isoformat()
+        }
+    except Exception as e:
+        logger.error(f"Error recording test traffic: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 # Add this at the bottom of the file
 if __name__ == "__main__":
@@ -675,8 +581,11 @@ if __name__ == "__main__":
         "app.main:app",
         host="0.0.0.0",
         port=5000,
-        workers=4,  # Increase number of workers
-        timeout_keep_alive=120,  # Increase keep-alive timeout
-        limit_concurrency=1000,  # Increase concurrent connection limit
-        backlog=2048  # Increase connection backlog
+        workers=2,  # Reduced number of workers
+        timeout_keep_alive=30,  # Reduced keep-alive timeout
+        limit_concurrency=100,  # Reduced concurrent connection limit
+        backlog=128,  # Reduced connection backlog
+        loop="uvloop",  # Use uvloop for better performance
+        http="httptools",  # Use httptools for better performance
+        log_level="info"
     )

@@ -11,8 +11,6 @@ import time
 import logging
 from sqlalchemy.orm import Session
 from app.database import get_db
-from app.schemas.alert import AlertCreate
-from app.models.alert import Alert
 
 load_dotenv()
 

@@ -5,8 +5,12 @@ import random
 
 from ..database import SessionLocal
 from .. import models, schemas, crud
+from ..database import get_db
 
-router = APIRouter()
+router = APIRouter(
+    prefix="/api/servers",
+    tags=["servers"]
+)
 
 def get_db():
     db = SessionLocal()
@@ -15,19 +19,35 @@ def get_db():
     finally:
         db.close()
 
-@router.get("/servers", response_model=List[schemas.ServerOut])
-def list_servers(db: Session = Depends(get_db)) -> List[schemas.ServerOut]:
-    return crud.get_servers(db)
+@router.get("/", response_model=List[schemas.Server])
+def get_servers(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
+    servers = crud.get_servers(db, skip=skip, limit=limit)
+    return servers
 
-@router.post("/servers", response_model=schemas.ServerOut, status_code=status.HTTP_201_CREATED)
-def add_server(server: schemas.ServerBase, db: Session = Depends(get_db)) -> schemas.ServerOut:
-    return crud.create_server(db, server)
+@router.post("/", response_model=schemas.Server)
+def create_server(server: schemas.ServerCreate, db: Session = Depends(get_db)):
+    return crud.create_server(db=db, server=server)
 
-@router.delete("/servers/{server_id}", status_code=status.HTTP_204_NO_CONTENT)
-def remove_server(server_id: int, db: Session = Depends(get_db)) -> None:
-    deleted = crud.delete_server(db, server_id)
-    if not deleted:
+@router.get("/{server_id}", response_model=schemas.Server)
+def get_server(server_id: int, db: Session = Depends(get_db)):
+    db_server = crud.get_server(db, server_id=server_id)
+    if db_server is None:
         raise HTTPException(status_code=404, detail="Server not found")
+    return db_server
+
+@router.put("/{server_id}", response_model=schemas.Server)
+def update_server(server_id: int, server: schemas.ServerCreate, db: Session = Depends(get_db)):
+    db_server = crud.update_server(db, server_id=server_id, server=server)
+    if db_server is None:
+        raise HTTPException(status_code=404, detail="Server not found")
+    return db_server
+
+@router.delete("/{server_id}")
+def delete_server(server_id: int, db: Session = Depends(get_db)):
+    db_server = crud.delete_server(db, server_id=server_id)
+    if db_server is None:
+        raise HTTPException(status_code=404, detail="Server not found")
+    return {"message": "Server deleted successfully"}
 
 from pydantic import BaseModel
 
