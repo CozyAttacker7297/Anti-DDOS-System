@@ -173,16 +173,25 @@ async def generate_test_data(db: Session = Depends(get_db)):
             else:
                 clean = random.randint(100, 1000)
                 malicious = random.randint(0, 30)
+            
+            total = clean + malicious
             traffic_stats = TrafficStats(
                 timestamp=timestamp,
                 clean_requests=clean,
                 malicious_requests=malicious,
-                total_requests=clean + malicious,
+                total_requests=total,
                 requests_per_second=random.uniform(1.0, 10.0),
-                bandwidth_usage=random.uniform(1.0, 100.0),
+                bandwidth_usage={
+                    "bytes_sent": random.randint(1000, 1000000),
+                    "bytes_received": random.randint(1000, 1000000)
+                },
                 active_connections=random.randint(10, 100),
                 error_rate=random.uniform(0.0, 5.0),
-                details={"source": "test_data"}
+                details={
+                    "source": "test_data",
+                    "hour": i,
+                    "peak_requests": random.randint(total, total * 2)
+                }
             )
             db.add(traffic_stats)
 
@@ -191,6 +200,7 @@ async def generate_test_data(db: Session = Depends(get_db)):
         severities = ['low', 'medium', 'high', 'critical']
         actions = ['blocked', 'monitored', 'allowed']
         statuses = ['detected', 'prevented', 'investigating']
+        
         for i in range(24):
             for attack_type in attack_types:
                 num_attacks = random.randint(2, 8)  # Random number of attacks per type per hour
@@ -198,18 +208,18 @@ async def generate_test_data(db: Session = Depends(get_db)):
                     timestamp = now - timedelta(hours=i, minutes=random.randint(0, 59), seconds=random.randint(0, 59))
                     attack_log = AttackLog(
                         timestamp=timestamp,
-                        source_ip=f"192.168.{random.randint(1, 255)}.{random.randint(1, 255)}",
                         attack_type=attack_type,
-                        target=f"test.com/{random.randint(1, 100)}",
+                        source_ip=f"192.168.1.{random.randint(1, 255)}",
+                        target=f"/api/{random.choice(['users', 'admin', 'data', 'config'])}",
                         severity=random.choice(severities),
                         action=random.choice(actions),
                         status=random.choice(statuses),
-                        server_id=test_server.id,
-                        request_count=random.randint(1, 1000),
-                        duration_seconds=random.uniform(0.1, 2.0),
-                        bandwidth_used=random.randint(100, 10000),
-                        is_blocked=random.choice([True, False]),
-                        details={"source": "test_data"}
+                        description=f"Test {attack_type} attack",
+                        details={
+                            "method": random.choice(["GET", "POST", "PUT", "DELETE"]),
+                            "headers": {"User-Agent": "Test Bot"},
+                            "payload": "Test payload"
+                        }
                     )
                     db.add(attack_log)
 
